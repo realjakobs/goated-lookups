@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import AgentPage from './pages/AgentPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
+import UnlockPage from './pages/UnlockPage.jsx';
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -76,6 +77,7 @@ export default function App() {
             }
           />
           <Route path="/register/:token" element={<RegisterPage />} />
+          <Route path="/unlock/:token" element={<UnlockPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

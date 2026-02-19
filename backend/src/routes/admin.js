@@ -42,6 +42,88 @@ router.post('/invites', async (req, res, next) => {
   }
 });
 
+// GET /api/admin/users
+// Returns all agent accounts with status info.
+router.get('/users', async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { role: 'AGENT' },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        createdAt: true,
+        failedLoginAttempts: true,
+        lockedUntil: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(users);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/users/:id/deactivate
+router.post('/users/:id/deactivate', async (req, res, next) => {
+  try {
+    const { id: adminId } = req.user;
+    const { id } = req.params;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isActive: false },
+      select: { id: true, email: true, isActive: true },
+    });
+
+    // Revoke all active refresh tokens so they're kicked out immediately
+    await prisma.refreshToken.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'USER_DEACTIVATED',
+        details: { targetUserId: id, email: user.email },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/users/:id/activate
+router.post('/users/:id/activate', async (req, res, next) => {
+  try {
+    const { id: adminId } = req.user;
+    const { id } = req.params;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isActive: true, failedLoginAttempts: 0, lockedUntil: null },
+      select: { id: true, email: true, isActive: true },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'USER_ACTIVATED',
+        details: { targetUserId: id, email: user.email },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/admin/queue
 // Returns all PENDING MARx requests.
 router.get('/queue', async (req, res, next) => {

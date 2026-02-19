@@ -81,6 +81,27 @@ export default function AdminPage() {
     setInviteUrl(data.inviteUrl);
   }
 
+  const [showUsers, setShowUsers] = useState(false);
+  const [agentUsers, setAgentUsers] = useState([]);
+
+  async function openUsers() {
+    const { data } = await api.get('/admin/users');
+    setAgentUsers(data);
+    setShowUsers(true);
+  }
+
+  async function deactivateUser(id) {
+    await api.post(`/admin/users/${id}/deactivate`);
+    setAgentUsers(prev => prev.map(u => u.id === id ? { ...u, isActive: false } : u));
+  }
+
+  async function activateUser(id) {
+    await api.post(`/admin/users/${id}/activate`);
+    setAgentUsers(prev => prev.map(u =>
+      u.id === id ? { ...u, isActive: true, lockedUntil: null, failedLoginAttempts: 0 } : u,
+    ));
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
       <header style={{ padding: '8px 16px', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -99,9 +120,11 @@ export default function AdminPage() {
               <button onClick={() => setInviteUrl('')} style={{ marginLeft: 4 }}>✕</button>
             </span>
           )}
+          <button onClick={openUsers}>Manage Agents</button>
           <button onClick={logout}>Logout</button>
         </div>
       </header>
+
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <AdminQueue
           requests={queue}
@@ -123,6 +146,41 @@ export default function AdminPage() {
           }
         </div>
       </div>
+
+      {/* Agent management modal */}
+      {showUsers && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: 8, padding: 24, minWidth: 440, maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>Agent Accounts</h2>
+              <button onClick={() => setShowUsers(false)}>✕</button>
+            </div>
+            {agentUsers.length === 0 ? (
+              <p style={{ color: '#888' }}>No agents registered yet.</p>
+            ) : (
+              agentUsers.map(u => {
+                const isLocked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
+                return (
+                  <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #eee' }}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{u.email}</div>
+                      <div style={{ fontSize: 12, marginTop: 2, color: !u.isActive ? '#d32f2f' : isLocked ? '#e65100' : '#388e3c' }}>
+                        {!u.isActive ? 'Deactivated' : isLocked ? 'Locked (awaiting email unlock)' : 'Active'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => u.isActive ? deactivateUser(u.id) : activateUser(u.id)}
+                      style={{ color: u.isActive ? '#d32f2f' : '#388e3c', minWidth: 90 }}
+                    >
+                      {u.isActive ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

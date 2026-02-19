@@ -6,12 +6,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
+const { sendUnlockEmail } = require('../lib/email');
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 12;
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+const UNLOCK_TOKEN_EXPIRY_HOURS = 1;
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MINUTES = 30;
 
 const SECURITY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -119,6 +120,7 @@ router.post('/register', async (req, res, next) => {
         userId: user.id,
         action: 'USER_REGISTERED',
         details: { email: user.email, role: user.role },
+        ipAddress: req.ip,
       },
     });
 
@@ -142,11 +144,15 @@ router.post('/login', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Check lockout before verifying password
+    // Check if account is deactivated by admin
+    if (user && !user.isActive) {
+      return res.status(403).json({ error: 'Your account has been deactivated. Contact your administrator.' });
+    }
+
+    // Check lockout
     if (user?.lockedUntil && user.lockedUntil > new Date()) {
-      const minutesLeft = Math.ceil((user.lockedUntil - new Date()) / 60000);
       return res.status(423).json({
-        error: `Account locked due to too many failed attempts. Try again in ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'}.`,
+        error: 'Account locked due to too many failed login attempts. Check your email for an unlock link.',
       });
     }
 
@@ -156,15 +162,17 @@ router.post('/login', async (req, res, next) => {
       if (user) {
         const attempts = user.failedLoginAttempts + 1;
         const shouldLock = attempts >= MAX_FAILED_ATTEMPTS;
+
+        // Lock for 30 days — only unlockable via the email link
+        const lockedUntil = shouldLock
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          : undefined;
+
         await prisma.user.update({
           where: { id: user.id },
-          data: {
-            failedLoginAttempts: attempts,
-            lockedUntil: shouldLock
-              ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
-              : undefined,
-          },
+          data: { failedLoginAttempts: attempts, lockedUntil },
         });
+
         await prisma.auditLog.create({
           data: {
             userId: user.id,
@@ -173,6 +181,22 @@ router.post('/login', async (req, res, next) => {
             ipAddress: req.ip,
           },
         });
+
+        if (shouldLock && user.securityQuestion) {
+          // Generate unlock token and email it
+          const plainToken = crypto.randomBytes(32).toString('hex');
+          const tokenHash = hashToken(plainToken);
+          const expiresAt = new Date(Date.now() + UNLOCK_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
+
+          await prisma.unlockToken.create({
+            data: { tokenHash, userId: user.id, expiresAt },
+          });
+
+          // Fire-and-forget — don't let email failure block the response
+          sendUnlockEmail(user.email, plainToken).catch(err =>
+            console.error('[email] Failed to send unlock email:', err),
+          );
+        }
       }
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -208,6 +232,93 @@ router.post('/login', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/auth/unlock/:token
+// Validates the unlock token and returns the user's security question.
+// ---------------------------------------------------------------------------
+router.get('/unlock/:token', async (req, res, next) => {
+  try {
+    const tokenHash = hashToken(req.params.token);
+    const unlockToken = await prisma.unlockToken.findUnique({
+      where: { tokenHash },
+      include: { user: { select: { securityQuestion: true } } },
+    });
+
+    if (!unlockToken || unlockToken.usedAt || unlockToken.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'This unlock link is invalid or has expired. Please contact your administrator.' });
+    }
+
+    res.json({ securityQuestion: unlockToken.user.securityQuestion });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/unlock/:token
+// Verifies the security answer and unlocks the account.
+// ---------------------------------------------------------------------------
+router.post('/unlock/:token', async (req, res, next) => {
+  try {
+    const { securityAnswer } = req.body;
+    if (!securityAnswer || typeof securityAnswer !== 'string') {
+      return res.status(400).json({ error: 'Security answer is required.' });
+    }
+
+    const tokenHash = hashToken(req.params.token);
+    const unlockToken = await prisma.unlockToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!unlockToken || unlockToken.usedAt || unlockToken.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'This unlock link is invalid or has expired. Please contact your administrator.' });
+    }
+
+    const { user } = unlockToken;
+
+    const answerValid = user.securityAnswerHash &&
+      await bcrypt.compare(securityAnswer.toLowerCase().trim(), user.securityAnswerHash);
+
+    if (!answerValid) {
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'UNLOCK_FAILED',
+          details: { reason: 'wrong_security_answer' },
+          ipAddress: req.ip,
+        },
+      });
+      return res.status(401).json({ error: 'Incorrect security answer.' });
+    }
+
+    // Unlock account and mark token as used atomically
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      }),
+      prisma.unlockToken.update({
+        where: { id: unlockToken.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'ACCOUNT_UNLOCKED',
+        details: { method: 'security_question' },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json({ message: 'Account unlocked. You may now log in.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/auth/refresh
 // ---------------------------------------------------------------------------
 router.post('/refresh', async (req, res, next) => {
@@ -231,14 +342,15 @@ router.post('/refresh', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isActive: true },
     });
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+
+    if (!user || !user.isActive) {
+      return res.status(403).json({ error: 'Account is deactivated.' });
     }
 
     const { accessToken, refreshToken: newRefreshToken } = await issueTokenPair(user);
-    res.json({ token: accessToken, refreshToken: newRefreshToken, user });
+    res.json({ token: accessToken, refreshToken: newRefreshToken, user: { id: user.id, email: user.email, role: user.role } });
   } catch (err) {
     next(err);
   }

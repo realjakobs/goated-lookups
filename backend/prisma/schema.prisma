@@ -34,6 +34,7 @@ model User {
   email               String    @unique
   passwordHash        String
   role                Role      @default(AGENT)
+  isActive            Boolean   @default(true)
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   securityQuestion    String?
@@ -48,6 +49,7 @@ model User {
   auditLogs        AuditLog[]
   refreshTokens    RefreshToken[]
   createdInvites   Invite[]                  @relation("CreatedInvites")
+  unlockTokens     UnlockToken[]
 }
 
 model Conversation {
@@ -119,6 +121,19 @@ model Invite {
   createdAt   DateTime  @default(now())
 
   createdBy User @relation("CreatedInvites", fields: [createdById], references: [id])
+}
+
+/// Single-use tokens emailed to locked-out users. Expires in 1 hour.
+/// User must answer their security question to consume and unlock their account.
+model UnlockToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique  // SHA-256(plaintext token)
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 /// Hashed refresh tokens — plaintext is sent to the client only at issuance.
