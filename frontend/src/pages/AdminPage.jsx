@@ -270,7 +270,12 @@ export default function AdminPage() {
                       className="flex items-center justify-between py-3 border-b border-gray-700 last:border-0"
                     >
                       <div>
-                        <div className="text-white text-sm font-medium">{u.email}</div>
+                        {(u.firstName || u.lastName) && (
+                          <div className="text-white text-sm font-medium">
+                            {[u.firstName, u.lastName].filter(Boolean).join(' ')}
+                          </div>
+                        )}
+                        <div className="text-gray-400 text-xs">{u.email}</div>
                         <div className={`text-xs mt-0.5 ${
                           !u.isActive ? 'text-red-400' : isLocked ? 'text-orange-400' : 'text-green-400'
                         }`}>

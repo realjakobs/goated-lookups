@@ -2,7 +2,9 @@ import React, { useEffect, useRef } from 'react';
 
 function getSenderLabel(sender) {
   if (sender?.role === 'ADMIN') return 'Admin';
-  // Show the part of the email before @ as the agent's display name
+  if (sender?.firstName || sender?.lastName) {
+    return [sender.firstName, sender.lastName].filter(Boolean).join(' ');
+  }
   return sender?.email?.split('@')[0] ?? 'Agent';
 }
 

@@ -25,6 +25,8 @@ const SECURITY_QUESTIONS = [
 ];
 
 const registerSchema = z.object({
+  firstName: z.string().min(1, 'First name is required').max(100),
+  lastName: z.string().min(1, 'Last name is required').max(100),
   email: z.string().email('Invalid email address').max(254),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   inviteToken: z.string().min(1, 'Invite token is required'),
@@ -73,7 +75,7 @@ router.post('/register', async (req, res, next) => {
     if (!result.success) {
       return res.status(400).json({ error: result.error.issues[0].message });
     }
-    const { email, password, inviteToken, securityQuestion, securityAnswer } = result.data;
+    const { firstName, lastName, email, password, inviteToken, securityQuestion, securityAnswer } = result.data;
 
     // Validate invite
     const tokenHash = hashToken(inviteToken);
@@ -101,13 +103,15 @@ router.post('/register', async (req, res, next) => {
     const [user] = await prisma.$transaction([
       prisma.user.create({
         data: {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           email,
           passwordHash,
           role: 'AGENT',
           securityQuestion,
           securityAnswerHash,
         },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, firstName: true, lastName: true },
       }),
       prisma.invite.update({
         where: { tokenHash },
@@ -224,7 +228,7 @@ router.post('/login', async (req, res, next) => {
     res.json({
       token: accessToken,
       refreshToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName },
     });
   } catch (err) {
     next(err);
@@ -342,7 +346,7 @@ router.post('/refresh', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, role: true, isActive: true },
+      select: { id: true, email: true, role: true, isActive: true, firstName: true, lastName: true },
     });
 
     if (!user || !user.isActive) {
@@ -350,7 +354,7 @@ router.post('/refresh', async (req, res, next) => {
     }
 
     const { accessToken, refreshToken: newRefreshToken } = await issueTokenPair(user);
-    res.json({ token: accessToken, refreshToken: newRefreshToken, user: { id: user.id, email: user.email, role: user.role } });
+    res.json({ token: accessToken, refreshToken: newRefreshToken, user: { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName } });
   } catch (err) {
     next(err);
   }

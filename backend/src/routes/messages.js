@@ -44,7 +44,7 @@ router.get('/:conversationId', async (req, res, next) => {
     const messages = await prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
-      include: { sender: { select: { id: true, email: true, role: true } } },
+      include: { sender: { select: { id: true, email: true, role: true, firstName: true, lastName: true } } },
     });
 
     const decrypted = messages.map(m => {
@@ -121,7 +121,7 @@ router.post('/:conversationId', upload.single('image'), async (req, res, next) =
 
     const message = await prisma.message.create({
       data: messageData,
-      include: { sender: { select: { id: true, email: true, role: true } } },
+      include: { sender: { select: { id: true, email: true, role: true, firstName: true, lastName: true } } },
     });
 
     await prisma.auditLog.create({

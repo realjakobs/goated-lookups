@@ -48,6 +48,8 @@ router.get('/users', async (req, res, next) => {
       select: {
         id: true,
         email: true,
+        firstName: true,
+        lastName: true,
         isActive: true,
         createdAt: true,
         failedLoginAttempts: true,

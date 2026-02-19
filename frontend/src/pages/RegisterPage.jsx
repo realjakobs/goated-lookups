@@ -31,6 +31,8 @@ export default function RegisterPage() {
   const [questions, setQuestions] = useState([]);
   const [inviteValid, setInviteValid] = useState(null);
   const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -70,6 +72,8 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', {
+        firstName: form.firstName,
+        lastName: form.lastName,
         email: form.email,
         password: form.password,
         inviteToken: token,
@@ -115,6 +119,31 @@ export default function RegisterPage() {
 
         <div className="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">First Name</label>
+                <input
+                  type="text"
+                  value={form.firstName}
+                  onChange={set('firstName')}
+                  required
+                  placeholder="Jane"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Last Name</label>
+                <input
+                  type="text"
+                  value={form.lastName}
+                  onChange={set('lastName')}
+                  required
+                  placeholder="Smith"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
               <input
