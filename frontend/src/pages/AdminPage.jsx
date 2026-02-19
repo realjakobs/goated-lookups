@@ -15,29 +15,19 @@ export default function AdminPage() {
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
 
-  // Connect socket
   useEffect(() => {
     const s = io(import.meta.env.VITE_API_URL || '', { auth: { token } });
     setSocket(s);
-
-    s.on('new-marx-request', (req) => {
-      setQueue(prev => [req, ...prev]);
-    });
-
-    s.on('request-claimed', ({ requestId }) => {
-      setQueue(prev => prev.filter(r => r.id !== requestId));
-    });
-
+    s.on('new-marx-request', (req) => { setQueue(prev => [req, ...prev]); });
+    s.on('request-claimed', ({ requestId }) => { setQueue(prev => prev.filter(r => r.id !== requestId)); });
     return () => s.disconnect();
   }, [token]);
 
-  // Load initial queue and conversations
   useEffect(() => {
     api.get('/admin/queue').then(r => setQueue(r.data));
     api.get('/conversations').then(r => setConversations(r.data));
   }, []);
 
-  // Load messages for active conversation
   useEffect(() => {
     if (!activeConvId) { setMessages([]); return; }
     api.get(`/messages/${activeConvId}`).then(r => setMessages(r.data));
@@ -103,81 +93,132 @@ export default function AdminPage() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
-      <header style={{ padding: '8px 16px', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Goated Lookups — Admin ({user.email})</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={createInvite}>+ Invite Agent</button>
+    <div className="flex h-screen flex-col bg-gray-900">
+      <header className="flex items-center justify-between px-5 py-3 bg-gray-800 border-b border-gray-700 shrink-0 gap-4">
+        <span className="font-semibold text-white shrink-0">
+          Goated Lookups
+          <span className="ml-2 text-gray-400 font-normal text-sm">— Admin</span>
+          <span className="ml-1 text-gray-500 text-xs">({user.email})</span>
+        </span>
+
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={createInvite}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
+                       px-4 py-1.5 rounded-lg transition duration-150
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+          >
+            + Invite Agent
+          </button>
+
           {inviteUrl && (
-            <span style={{ fontSize: 12 }}>
+            <span className="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-1.5 border border-gray-600">
               <input
                 readOnly
                 value={inviteUrl}
-                style={{ width: 320, marginRight: 4 }}
+                className="w-72 bg-transparent text-gray-300 text-xs focus:outline-none"
                 onFocus={e => e.target.select()}
               />
-              <button onClick={() => { navigator.clipboard.writeText(inviteUrl); }}>Copy</button>
-              <button onClick={() => setInviteUrl('')} style={{ marginLeft: 4 }}>✕</button>
+              <button
+                onClick={() => { navigator.clipboard.writeText(inviteUrl); }}
+                className="text-blue-400 hover:text-blue-300 text-xs font-medium transition duration-150"
+              >
+                Copy
+              </button>
+              <button
+                onClick={() => setInviteUrl('')}
+                className="text-gray-500 hover:text-gray-300 transition duration-150 text-xs"
+              >
+                ✕
+              </button>
             </span>
           )}
-          <button onClick={openUsers}>Manage Agents</button>
-          <button onClick={logout}>Logout</button>
+
+          <button
+            onClick={openUsers}
+            className="text-gray-300 hover:text-white text-sm px-3 py-1.5 rounded-lg
+                       hover:bg-gray-700 border border-gray-600 transition duration-150"
+          >
+            Manage Agents
+          </button>
+          <button
+            onClick={logout}
+            className="text-gray-400 hover:text-white text-sm px-3 py-1.5 rounded-lg
+                       hover:bg-gray-700 transition duration-150"
+          >
+            Logout
+          </button>
         </div>
       </header>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <AdminQueue
-          requests={queue}
-          onClaim={claimRequest}
-          onResolve={resolveRequest}
-        />
-        <ConversationList
-          conversations={conversations}
-          activeId={activeConvId}
-          onSelect={setActiveConvId}
-        />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {activeConvId
-            ? <>
-                <MessageList messages={messages} currentUserId={user.id} />
-                <MessageInput onSend={sendMessage} />
-              </>
-            : <div style={{ margin: 'auto', color: '#888' }}>Select a conversation or claim a request</div>
-          }
+      <div className="flex flex-1 overflow-hidden">
+        <AdminQueue requests={queue} onClaim={claimRequest} onResolve={resolveRequest} />
+        <ConversationList conversations={conversations} activeId={activeConvId} onSelect={setActiveConvId} />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {activeConvId ? (
+            <>
+              <MessageList messages={messages} currentUserId={user.id} />
+              <MessageInput onSend={sendMessage} />
+            </>
+          ) : (
+            <div className="m-auto text-center">
+              <p className="text-gray-500 text-sm">Select a conversation or claim a request</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Agent management modal */}
       {showUsers && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', borderRadius: 8, padding: 24, minWidth: 440, maxHeight: '80vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0 }}>Agent Accounts</h2>
-              <button onClick={() => setShowUsers(false)}>✕</button>
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowUsers(false); }}
+        >
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl">
+              <h2 className="text-white font-semibold text-lg">Agent Accounts</h2>
+              <button
+                onClick={() => setShowUsers(false)}
+                className="text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg p-1.5 transition duration-150"
+              >
+                ✕
+              </button>
             </div>
-            {agentUsers.length === 0 ? (
-              <p style={{ color: '#888' }}>No agents registered yet.</p>
-            ) : (
-              agentUsers.map(u => {
-                const isLocked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
-                return (
-                  <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #eee' }}>
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{u.email}</div>
-                      <div style={{ fontSize: 12, marginTop: 2, color: !u.isActive ? '#d32f2f' : isLocked ? '#e65100' : '#388e3c' }}>
-                        {!u.isActive ? 'Deactivated' : isLocked ? 'Locked (awaiting email unlock)' : 'Active'}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => u.isActive ? deactivateUser(u.id) : activateUser(u.id)}
-                      style={{ color: u.isActive ? '#d32f2f' : '#388e3c', minWidth: 90 }}
+
+            <div className="px-6 py-4">
+              {agentUsers.length === 0 ? (
+                <p className="text-gray-500 text-sm py-4 text-center">No agents registered yet.</p>
+              ) : (
+                agentUsers.map(u => {
+                  const isLocked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
+                  return (
+                    <div
+                      key={u.id}
+                      className="flex items-center justify-between py-3 border-b border-gray-700 last:border-0"
                     >
-                      {u.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </div>
-                );
-              })
-            )}
+                      <div>
+                        <div className="text-white text-sm font-medium">{u.email}</div>
+                        <div className={`text-xs mt-0.5 ${
+                          !u.isActive ? 'text-red-400' : isLocked ? 'text-orange-400' : 'text-green-400'
+                        }`}>
+                          {!u.isActive ? 'Deactivated' : isLocked ? 'Locked (awaiting email unlock)' : 'Active'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => u.isActive ? deactivateUser(u.id) : activateUser(u.id)}
+                        className={`text-sm font-medium px-4 py-1.5 rounded-lg transition duration-150 min-w-[90px]
+                          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800
+                          ${u.isActive
+                            ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 focus:ring-red-500'
+                            : 'bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/30 focus:ring-green-500'
+                          }`}
+                      >
+                        {u.isActive ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

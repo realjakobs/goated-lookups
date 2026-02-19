@@ -8,35 +8,28 @@ export default function MessageList({ messages, currentUserId }) {
   }, [messages]);
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-900">
       {messages.map(msg => {
         const isMine = msg.sender?.id === currentUserId;
         return (
           <div
             key={msg.id}
-            style={{
-              display: 'flex',
-              justifyContent: isMine ? 'flex-end' : 'flex-start',
-              marginBottom: 8,
-            }}
+            className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              style={{
-                maxWidth: '70%',
-                padding: '8px 12px',
-                borderRadius: 12,
-                background: isMine ? '#1a73e8' : '#f1f3f4',
-                color: isMine ? '#fff' : '#202124',
-                fontSize: 14,
-              }}
+              className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm shadow-sm
+                ${isMine
+                  ? 'bg-blue-600 text-white rounded-br-sm'
+                  : 'bg-gray-700 text-gray-100 rounded-bl-sm'
+                }`}
             >
               {!isMine && (
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                <div className="text-xs font-semibold text-blue-400 mb-1">
                   {msg.sender?.email}
                 </div>
               )}
-              <div>{msg.content}</div>
-              <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: 'right' }}>
+              <div className="leading-relaxed">{msg.content}</div>
+              <div className={`text-xs mt-1 text-right ${isMine ? 'text-blue-200' : 'text-gray-500'}`}>
                 {new Date(msg.createdAt).toLocaleTimeString()}
               </div>
             </div>

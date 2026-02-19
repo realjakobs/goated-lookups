@@ -13,28 +13,23 @@ export default function AgentPage() {
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
 
-  // Connect socket
   useEffect(() => {
     const s = io(import.meta.env.VITE_API_URL || '', { auth: { token } });
     setSocket(s);
     return () => s.disconnect();
   }, [token]);
 
-  // Load conversations
   useEffect(() => {
     api.get('/conversations').then(r => setConversations(r.data));
   }, []);
 
-  // Load messages when conversation changes
   useEffect(() => {
     if (!activeConvId) { setMessages([]); return; }
     api.get(`/messages/${activeConvId}`).then(r => setMessages(r.data));
-
     socket?.emit('join-conversation', activeConvId);
     return () => socket?.emit('leave-conversation', activeConvId);
   }, [activeConvId, socket]);
 
-  // Real-time new messages
   useEffect(() => {
     if (!socket) return;
     const handler = (msg) => {
@@ -48,7 +43,6 @@ export default function AgentPage() {
 
   async function submitRequest() {
     const { data } = await api.post('/admin/request');
-    // Refresh conversations after request is created
     const convRes = await api.get('/conversations');
     setConversations(convRes.data);
     alert(`MARx request submitted (ID: ${data.id})`);
@@ -60,28 +54,49 @@ export default function AgentPage() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
-      <header style={{ padding: '8px 16px', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between' }}>
-        <span>Goated Lookups — Agent ({user.email})</span>
-        <div>
-          <button onClick={submitRequest} style={{ marginRight: 8 }}>+ New MARx Request</button>
-          <button onClick={logout}>Logout</button>
+    <div className="flex h-screen flex-col bg-gray-900">
+      <header className="flex items-center justify-between px-5 py-3 bg-gray-800 border-b border-gray-700 shrink-0">
+        <span className="font-semibold text-white">
+          Goated Lookups
+          <span className="ml-2 text-gray-400 font-normal text-sm">— Agent</span>
+          <span className="ml-1 text-gray-500 text-xs">({user.email})</span>
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={submitRequest}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
+                       px-4 py-1.5 rounded-lg transition duration-150
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+          >
+            + New MARx Request
+          </button>
+          <button
+            onClick={logout}
+            className="text-gray-400 hover:text-white text-sm px-3 py-1.5 rounded-lg
+                       hover:bg-gray-700 transition duration-150"
+          >
+            Logout
+          </button>
         </div>
       </header>
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+      <div className="flex flex-1 overflow-hidden">
         <ConversationList
           conversations={conversations}
           activeId={activeConvId}
           onSelect={setActiveConvId}
         />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {activeConvId
-            ? <>
-                <MessageList messages={messages} currentUserId={user.id} />
-                <MessageInput onSend={sendMessage} />
-              </>
-            : <div style={{ margin: 'auto', color: '#888' }}>Select a conversation</div>
-          }
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {activeConvId ? (
+            <>
+              <MessageList messages={messages} currentUserId={user.id} />
+              <MessageInput onSend={sendMessage} />
+            </>
+          ) : (
+            <div className="m-auto text-center">
+              <p className="text-gray-500 text-sm">Select a conversation to start messaging</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

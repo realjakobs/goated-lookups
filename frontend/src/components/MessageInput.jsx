@@ -11,22 +11,29 @@ export default function MessageInput({ onSend }) {
     setValue('');
   }
 
+  const canSend = value.trim().length > 0;
+
   return (
     <form
       onSubmit={handleSubmit}
-      style={{ display: 'flex', padding: 12, borderTop: '1px solid #ccc', gap: 8 }}
+      className="flex items-center gap-3 px-4 py-3 bg-gray-800 border-t border-gray-700 shrink-0"
     >
       <input
         type="text"
         value={value}
         onChange={e => setValue(e.target.value)}
         placeholder="Type a message…"
-        style={{ flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid #ccc', fontSize: 14 }}
+        className="flex-1 bg-gray-700 border border-gray-600 text-white placeholder-gray-500
+                   rounded-full px-4 py-2 text-sm
+                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                   transition duration-150"
       />
       <button
         type="submit"
-        disabled={!value.trim()}
-        style={{ padding: '8px 16px', borderRadius: 20, background: '#1a73e8', color: '#fff', border: 'none', cursor: 'pointer' }}
+        disabled={!canSend}
+        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed
+                   text-white font-medium px-5 py-2 rounded-full text-sm
+                   transition duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
       >
         Send
       </button>
