@@ -30,6 +30,7 @@ export function useMessageSound() {
     setSoundEnabled(prev => {
       const next = !prev;
       localStorage.setItem(STORAGE_KEY, String(next));
+      if (next) playBeep();
       return next;
     });
   }, []);
