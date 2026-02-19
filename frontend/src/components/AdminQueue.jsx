@@ -1,5 +1,12 @@
 import React from 'react';
 
+function agentName(agent) {
+  if (agent?.firstName || agent?.lastName) {
+    return [agent.firstName, agent.lastName].filter(Boolean).join(' ');
+  }
+  return agent?.email?.split('@')[0] ?? 'Agent';
+}
+
 export default function AdminQueue({ requests, onClaim, onResolve }) {
   return (
     <div className="w-72 shrink-0 bg-gray-800 border-r border-gray-700 flex flex-col overflow-hidden">
@@ -18,12 +25,11 @@ export default function AdminQueue({ requests, onClaim, onResolve }) {
         )}
         {requests.map(req => (
           <div key={req.id} className="px-4 py-3 border-b border-gray-700/50">
-            <div className="text-sm font-medium text-white mb-1">
-              Request {req.id.slice(-8)}
+            <div className="text-sm font-medium text-white mb-0.5">
+              {agentName(req.agent)}
             </div>
-            <div className="text-xs text-gray-400 mb-2.5 space-y-0.5">
-              <div>Agent: {req.agent?.email}</div>
-              <div>{new Date(req.createdAt).toLocaleString()}</div>
+            <div className="text-xs text-gray-400 mb-2.5">
+              {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
             <div className="flex gap-2">
               {req.status === 'PENDING' && (

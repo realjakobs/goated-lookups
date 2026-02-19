@@ -1,5 +1,13 @@
 import React from 'react';
 
+function getAgentName(conv) {
+  const agent = conv.participants?.find(p => p.user?.role === 'AGENT')?.user;
+  if (agent?.firstName || agent?.lastName) {
+    return [agent.firstName, agent.lastName].filter(Boolean).join(' ');
+  }
+  return agent?.email?.split('@')[0] ?? 'Agent';
+}
+
 export default function ConversationList({ conversations, activeId, onSelect }) {
   return (
     <div className="w-60 shrink-0 bg-gray-800 border-r border-gray-700 flex flex-col overflow-hidden">
@@ -25,7 +33,7 @@ export default function ConversationList({ conversations, activeId, onSelect }) 
               }`}
           >
             <div className="text-sm font-medium text-white">
-              Request {conv.marxRequest?.id?.slice(-6) ?? conv.id.slice(-6)}
+              {getAgentName(conv)}
             </div>
             <div className="text-xs text-gray-400 mt-0.5">
               {conv.marxRequest?.status ?? 'OPEN'}

@@ -27,7 +27,7 @@ router.get('/', async (req, res, next) => {
     const conversations = await prisma.conversation.findMany({
       where,
       include: {
-        participants: { include: { user: { select: { id: true, email: true, role: true } } } },
+        participants: { include: { user: { select: { id: true, email: true, role: true, firstName: true, lastName: true } } } },
         marxRequest: { select: { id: true, status: true } },
         messages: {
           orderBy: { createdAt: 'desc' },
@@ -53,7 +53,7 @@ router.get('/:id', async (req, res, next) => {
     const conversation = await prisma.conversation.findUnique({
       where: { id },
       include: {
-        participants: { include: { user: { select: { id: true, email: true, role: true } } } },
+        participants: { include: { user: { select: { id: true, email: true, role: true, firstName: true, lastName: true } } } },
         marxRequest: true,
       },
     });

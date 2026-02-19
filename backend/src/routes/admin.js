@@ -128,7 +128,7 @@ router.get('/queue', async (req, res, next) => {
     const requests = await prisma.mARxRequest.findMany({
       where: { status: 'PENDING' },
       include: {
-        agent: { select: { id: true, email: true } },
+        agent: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
