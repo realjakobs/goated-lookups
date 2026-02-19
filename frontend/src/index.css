@@ -30,3 +30,18 @@
     @apply bg-gray-700 text-white;
   }
 }
+
+@layer utilities {
+  .bell-ring {
+    animation: bell-ring 3.5s ease-in-out infinite;
+    transform-origin: top center;
+  }
+}
+
+@keyframes bell-ring {
+  0%, 20%, 100% { transform: rotate(0deg); }
+  5%  { transform: rotate(18deg); }
+  10% { transform: rotate(-14deg); }
+  15% { transform: rotate(10deg); }
+  18% { transform: rotate(-5deg); }
+}

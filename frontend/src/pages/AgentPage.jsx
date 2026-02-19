@@ -6,6 +6,7 @@ import ConversationList from '../components/ConversationList.jsx';
 import MessageList from '../components/MessageList.jsx';
 import MessageInput from '../components/MessageInput.jsx';
 import { useMessageSound } from '../hooks/useMessageSound.js';
+import BellButton from '../components/BellButton.jsx';
 
 export default function AgentPage() {
   const { user, token, logout } = useAuth();
@@ -82,14 +83,7 @@ export default function AgentPage() {
           >
             + New MARx Request
           </button>
-          <button
-            onClick={toggleSound}
-            title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
-            className="text-gray-400 hover:text-white text-lg px-2 py-1.5 rounded-lg
-                       hover:bg-gray-700 transition duration-150"
-          >
-            {soundEnabled ? '🔔' : '🔕'}
-          </button>
+          <BellButton enabled={soundEnabled} onToggle={toggleSound} />
           <button
             onClick={logout}
             className="text-gray-400 hover:text-white text-sm px-3 py-1.5 rounded-lg
