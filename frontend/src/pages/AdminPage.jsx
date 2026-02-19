@@ -86,11 +86,14 @@ export default function AdminPage() {
   async function resolveRequest(requestId) {
     try {
       await api.post(`/admin/resolve/${requestId}`);
+      // Navigate away and remove the conversation from the list
+      setActiveConvId(null);
       try {
         const convRes = await api.get('/conversations');
         setConversations(convRes.data);
       } catch {
-        // Ignore list-refresh failure
+        // Ignore list-refresh failure; remove locally as fallback
+        setConversations(prev => prev.filter(c => c.marxRequest?.id !== requestId));
       }
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to resolve request. Please try again.');

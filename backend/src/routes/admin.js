@@ -217,6 +217,13 @@ router.post('/resolve/:requestId', async (req, res, next) => {
       data: { status: 'RESOLVED', resolvedAt: new Date() },
     });
 
+    // Remove admin from the conversation so it no longer appears in their sidebar
+    if (request.conversationId) {
+      await prisma.conversationParticipant.deleteMany({
+        where: { userId: adminId, conversationId: request.conversationId },
+      });
+    }
+
     await prisma.auditLog.create({
       data: {
         userId: adminId,

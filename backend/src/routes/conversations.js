@@ -14,15 +14,13 @@ router.use(authenticate);
 // Agents only see their own; admins see all.
 router.get('/', async (req, res, next) => {
   try {
-    const { id: userId, role } = req.user;
+    const { id: userId } = req.user;
 
-    const where = role === 'ADMIN'
-      ? {}
-      : {
-          participants: {
-            some: { userId },
-          },
-        };
+    const where = {
+      participants: {
+        some: { userId },
+      },
+    };
 
     const conversations = await prisma.conversation.findMany({
       where,
