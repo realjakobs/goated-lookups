@@ -1,14 +1,46 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 
+const INVITE_EXPIRY_HOURS = 48;
+
 const router = express.Router();
 
 // All admin routes require authentication + ADMIN role
 router.use(authenticate, requireRole('ADMIN'));
+
+// POST /api/admin/invites
+// Admin generates a single-use invite link for a new agent.
+router.post('/invites', async (req, res, next) => {
+  try {
+    const { id: adminId } = req.user;
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(plainToken).digest('hex');
+    const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
+
+    await prisma.invite.create({
+      data: { tokenHash, createdById: adminId, expiresAt },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'INVITE_CREATED',
+        details: { expiresAt },
+        ipAddress: req.ip,
+      },
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.status(201).json({ inviteUrl: `${frontendUrl}/register/${plainToken}` });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/admin/queue
 // Returns all PENDING MARx requests.

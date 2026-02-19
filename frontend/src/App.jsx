@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import AgentPage from './pages/AgentPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
+import RegisterPage from './pages/RegisterPage.jsx';
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -74,6 +75,7 @@ export default function App() {
               </PrivateRoute>
             }
           />
+          <Route path="/register/:token" element={<RegisterPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

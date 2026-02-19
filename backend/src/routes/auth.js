@@ -13,10 +13,22 @@ const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 30;
 
+const SECURITY_QUESTIONS = [
+  'What was the name of your first pet?',
+  'What city were you born in?',
+  'What was your childhood nickname?',
+  "What is your mother's maiden name?",
+  'What was the name of your elementary school?',
+  'What is the name of the street you grew up on?',
+  'What was the make of your first car?',
+];
+
 const registerSchema = z.object({
   email: z.string().email('Invalid email address').max(254),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
-  role: z.string().optional(),
+  inviteToken: z.string().min(1, 'Invite token is required'),
+  securityQuestion: z.string().min(1, 'Security question is required'),
+  securityAnswer: z.string().min(1, 'Security answer is required').max(200),
 });
 
 const loginSchema = z.object({
@@ -25,7 +37,34 @@ const loginSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/auth/security-questions
+// ---------------------------------------------------------------------------
+router.get('/security-questions', (_req, res) => {
+  res.json({ questions: SECURITY_QUESTIONS });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/auth/invite/:token
+// Validates an invite token without consuming it.
+// ---------------------------------------------------------------------------
+router.get('/invite/:token', async (req, res, next) => {
+  try {
+    const tokenHash = hashToken(req.params.token);
+    const invite = await prisma.invite.findUnique({ where: { tokenHash } });
+
+    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'Invite link is invalid or has expired.' });
+    }
+
+    res.json({ valid: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/auth/register
+// Requires a valid invite token. Always creates an AGENT account.
 // ---------------------------------------------------------------------------
 router.post('/register', async (req, res, next) => {
   try {
@@ -33,7 +72,18 @@ router.post('/register', async (req, res, next) => {
     if (!result.success) {
       return res.status(400).json({ error: result.error.issues[0].message });
     }
-    const { email, password, role } = result.data;
+    const { email, password, inviteToken, securityQuestion, securityAnswer } = result.data;
+
+    // Validate invite
+    const tokenHash = hashToken(inviteToken);
+    const invite = await prisma.invite.findUnique({ where: { tokenHash } });
+    if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'Invite link is invalid or has expired.' });
+    }
+
+    if (!SECURITY_QUESTIONS.includes(securityQuestion)) {
+      return res.status(400).json({ error: 'Invalid security question.' });
+    }
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -41,16 +91,28 @@ router.post('/register', async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        // Only allow AGENT by default; ADMIN accounts must be created out-of-band
-        // or via a seeded admin. Accept role param only in non-production.
-        role: process.env.NODE_ENV !== 'production' && role === 'ADMIN' ? 'ADMIN' : 'AGENT',
-      },
-      select: { id: true, email: true, role: true },
-    });
+    const securityAnswerHash = await bcrypt.hash(
+      securityAnswer.toLowerCase().trim(),
+      BCRYPT_ROUNDS,
+    );
+
+    // Create user and mark invite as used atomically
+    const [user] = await prisma.$transaction([
+      prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: 'AGENT',
+          securityQuestion,
+          securityAnswerHash,
+        },
+        select: { id: true, email: true, role: true },
+      }),
+      prisma.invite.update({
+        where: { tokenHash },
+        data: { usedAt: new Date() },
+      }),
+    ]);
 
     await prisma.auditLog.create({
       data: {
@@ -80,7 +142,7 @@ router.post('/login', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Check lockout before verifying password (avoids bcrypt timing on locked accounts)
+    // Check lockout before verifying password
     if (user?.lockedUntil && user.lockedUntil > new Date()) {
       const minutesLeft = Math.ceil((user.lockedUntil - new Date()) / 60000);
       return res.status(423).json({
@@ -91,7 +153,6 @@ router.post('/login', async (req, res, next) => {
     const valid = user && await bcrypt.compare(password, user.passwordHash);
 
     if (!valid) {
-      // Increment failed attempts and potentially lock the account
       if (user) {
         const attempts = user.failedLoginAttempts + 1;
         const shouldLock = attempts >= MAX_FAILED_ATTEMPTS;
@@ -113,7 +174,6 @@ router.post('/login', async (req, res, next) => {
           },
         });
       }
-      // Same message for both cases to avoid user enumeration
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -149,7 +209,6 @@ router.post('/login', async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/refresh
-// Exchange a valid refresh token for a new access token + rotated refresh token.
 // ---------------------------------------------------------------------------
 router.post('/refresh', async (req, res, next) => {
   try {
@@ -165,7 +224,6 @@ router.post('/refresh', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid or expired refresh token' });
     }
 
-    // Revoke the used token (rotation — one-time use)
     await prisma.refreshToken.update({
       where: { id: stored.id },
       data: { revokedAt: new Date() },
@@ -188,7 +246,6 @@ router.post('/refresh', async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/logout
-// Revokes the provided refresh token. No auth required — the token IS the credential.
 // ---------------------------------------------------------------------------
 router.post('/logout', async (req, res, next) => {
   try {

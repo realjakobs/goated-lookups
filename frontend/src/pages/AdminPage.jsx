@@ -75,11 +75,32 @@ export default function AdminPage() {
     setMessages(prev => [...prev, data]);
   }
 
+  const [inviteUrl, setInviteUrl] = useState('');
+  async function createInvite() {
+    const { data } = await api.post('/admin/invites');
+    setInviteUrl(data.inviteUrl);
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
-      <header style={{ padding: '8px 16px', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between' }}>
+      <header style={{ padding: '8px 16px', borderBottom: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Goated Lookups — Admin ({user.email})</span>
-        <button onClick={logout}>Logout</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={createInvite}>+ Invite Agent</button>
+          {inviteUrl && (
+            <span style={{ fontSize: 12 }}>
+              <input
+                readOnly
+                value={inviteUrl}
+                style={{ width: 320, marginRight: 4 }}
+                onFocus={e => e.target.select()}
+              />
+              <button onClick={() => { navigator.clipboard.writeText(inviteUrl); }}>Copy</button>
+              <button onClick={() => setInviteUrl('')} style={{ marginLeft: 4 }}>✕</button>
+            </span>
+          )}
+          <button onClick={logout}>Logout</button>
+        </div>
       </header>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <AdminQueue
