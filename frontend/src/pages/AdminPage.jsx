@@ -67,17 +67,34 @@ export default function AdminPage() {
   }, [socket, activeConvId, user.id, notify]);
 
   async function claimRequest(requestId) {
-    const { data } = await api.post(`/admin/claim/${requestId}`);
-    setQueue(prev => prev.filter(r => r.id !== requestId));
-    const convRes = await api.get('/conversations');
-    setConversations(convRes.data);
-    setActiveConvId(data.conversation.id);
+    try {
+      const { data } = await api.post(`/admin/claim/${requestId}`);
+      setQueue(prev => prev.filter(r => r.id !== requestId));
+      // Refresh conversation list; navigate to the claimed conv regardless of whether refresh succeeds
+      try {
+        const convRes = await api.get('/conversations');
+        setConversations(convRes.data);
+      } catch {
+        // Ignore list-refresh failure — we still navigate below
+      }
+      setActiveConvId(data.conversation.id);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to claim request. Please try again.');
+    }
   }
 
   async function resolveRequest(requestId) {
-    await api.post(`/admin/resolve/${requestId}`);
-    const convRes = await api.get('/conversations');
-    setConversations(convRes.data);
+    try {
+      await api.post(`/admin/resolve/${requestId}`);
+      try {
+        const convRes = await api.get('/conversations');
+        setConversations(convRes.data);
+      } catch {
+        // Ignore list-refresh failure
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to resolve request. Please try again.');
+    }
   }
 
   async function sendMessage(content, file) {
@@ -231,6 +248,22 @@ export default function AdminPage() {
 
           {activeConvId ? (
             <>
+              {(() => {
+                const activeConv = conversations.find(c => c.id === activeConvId);
+                return activeConv?.marxRequest?.status === 'CLAIMED' ? (
+                  <div className="px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0 flex items-center justify-between">
+                    <span className="text-xs text-yellow-400 font-medium">Request claimed — mark resolved when done</span>
+                    <button
+                      onClick={() => resolveRequest(activeConv.marxRequest.id)}
+                      className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium
+                                 px-3 py-1 rounded-lg transition duration-150
+                                 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+                    >
+                      Mark Resolved
+                    </button>
+                  </div>
+                ) : null;
+              })()}
               <MessageList messages={messages} currentUserId={user.id} />
               <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
             </>

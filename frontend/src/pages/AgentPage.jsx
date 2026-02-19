@@ -69,11 +69,19 @@ export default function AgentPage() {
   }, [socket, activeConvId, user.id, notify]);
 
   async function submitRequest() {
-    const { data } = await api.post('/admin/request');
-    const convRes = await api.get('/conversations');
-    setConversations(convRes.data);
-    // Auto-navigate into the new conversation so agent can send info immediately
-    setActiveConvId(data.conversation.id);
+    try {
+      const { data } = await api.post('/admin/request');
+      // Refresh conversation list; navigate to new conv regardless of whether refresh succeeds
+      try {
+        const convRes = await api.get('/conversations');
+        setConversations(convRes.data);
+      } catch {
+        // Ignore list-refresh failure — we still navigate below
+      }
+      setActiveConvId(data.conversation.id);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to submit request. Please try again.');
+    }
   }
 
   async function sendMessage(content, file) {

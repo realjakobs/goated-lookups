@@ -268,7 +268,12 @@ agentRouter.post('/request', async (req, res, next) => {
       },
     });
 
-    getIo()?.notifyNewRequest({ ...marxRequest, agent: { id: agentId } });
+    // Fetch full agent data so admin queue can display the agent's name immediately
+    const agent = await prisma.user.findUnique({
+      where: { id: agentId },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    getIo()?.notifyNewRequest({ ...marxRequest, agent });
 
     res.status(201).json({ ...marxRequest, conversation });
   } catch (err) {
