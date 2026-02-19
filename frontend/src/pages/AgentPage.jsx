@@ -5,6 +5,7 @@ import api from '../lib/api.js';
 import ConversationList from '../components/ConversationList.jsx';
 import MessageList from '../components/MessageList.jsx';
 import MessageInput from '../components/MessageInput.jsx';
+import { useMessageSound } from '../hooks/useMessageSound.js';
 
 export default function AgentPage() {
   const { user, token, logout } = useAuth();
@@ -12,6 +13,7 @@ export default function AgentPage() {
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
+  const { soundEnabled, toggleSound, notify } = useMessageSound();
 
   useEffect(() => {
     const s = io(import.meta.env.VITE_API_URL || '', { auth: { token } });
@@ -32,14 +34,24 @@ export default function AgentPage() {
 
   useEffect(() => {
     if (!socket) return;
-    const handler = (msg) => {
+    const onMessage = (msg) => {
       if (msg.conversationId === activeConvId) {
         setMessages(prev => [...prev, msg]);
+        if (msg.sender?.id !== user.id) notify();
       }
     };
-    socket.on('new-message', handler);
-    return () => socket.off('new-message', handler);
-  }, [socket, activeConvId]);
+    const onExpired = ({ conversationId, messageIds }) => {
+      if (conversationId === activeConvId) {
+        setMessages(prev => prev.filter(m => !messageIds.includes(m.id)));
+      }
+    };
+    socket.on('new-message', onMessage);
+    socket.on('messages-expired', onExpired);
+    return () => {
+      socket.off('new-message', onMessage);
+      socket.off('messages-expired', onExpired);
+    };
+  }, [socket, activeConvId, user.id, notify]);
 
   async function submitRequest() {
     const { data } = await api.post('/admin/request');
@@ -69,6 +81,14 @@ export default function AgentPage() {
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
           >
             + New MARx Request
+          </button>
+          <button
+            onClick={toggleSound}
+            title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
+            className="text-gray-400 hover:text-white text-lg px-2 py-1.5 rounded-lg
+                       hover:bg-gray-700 transition duration-150"
+          >
+            {soundEnabled ? '🔔' : '🔕'}
           </button>
           <button
             onClick={logout}

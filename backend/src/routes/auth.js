@@ -362,11 +362,24 @@ router.post('/refresh', async (req, res, next) => {
 router.post('/logout', async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
+    let userId = null;
     if (refreshToken) {
       const tokenHash = hashToken(refreshToken);
+      const existing = await prisma.refreshToken.findUnique({ where: { tokenHash }, select: { userId: true } });
+      userId = existing?.userId ?? null;
       await prisma.refreshToken.updateMany({
         where: { tokenHash, revokedAt: null },
         data: { revokedAt: new Date() },
+      });
+    }
+    if (userId) {
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'LOGOUT',
+          details: {},
+          ipAddress: req.ip,
+        },
       });
     }
     res.json({ message: 'Logged out' });

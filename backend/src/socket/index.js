@@ -65,6 +65,10 @@ function initSocket(io) {
   io.notifyRequestClaimed = (requestId, conversationId) => {
     io.to('admin-queue').emit('request-claimed', { requestId, conversationId });
   };
+
+  io.notifyMessagesExpired = (conversationId, messageIds) => {
+    io.to(`conversation:${conversationId}`).emit('messages-expired', { conversationId, messageIds });
+  };
 }
 
 module.exports = initSocket;

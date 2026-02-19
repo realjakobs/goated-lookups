@@ -13,6 +13,7 @@ const messagesRoutes = require('./routes/messages');
 const conversationsRoutes = require('./routes/conversations');
 const { adminRouter, agentRouter } = require('./routes/admin');
 const initSocket = require('./socket');
+const prisma = require('./lib/prisma');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -89,3 +90,37 @@ const PORT = process.env.PORT || 4000;
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
 });
+
+// ---------------------------------------------------------------------------
+// Message expiry — delete messages older than 30 minutes every 60 seconds
+// ---------------------------------------------------------------------------
+const MESSAGE_TTL_MS = 30 * 60 * 1000;
+
+async function expireMessages() {
+  try {
+    const cutoff = new Date(Date.now() - MESSAGE_TTL_MS);
+    const expired = await prisma.message.findMany({
+      where: { createdAt: { lt: cutoff } },
+      select: { id: true, conversationId: true },
+    });
+
+    if (expired.length === 0) return;
+
+    const byConversation = {};
+    for (const msg of expired) {
+      if (!byConversation[msg.conversationId]) byConversation[msg.conversationId] = [];
+      byConversation[msg.conversationId].push(msg.id);
+    }
+
+    await prisma.message.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    console.log(`[expiry] deleted ${expired.length} message(s)`);
+
+    for (const [conversationId, messageIds] of Object.entries(byConversation)) {
+      io.notifyMessagesExpired(conversationId, messageIds);
+    }
+  } catch (err) {
+    console.error('[expiry] error:', err);
+  }
+}
+
+setInterval(expireMessages, 60 * 1000);
