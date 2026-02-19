@@ -268,10 +268,10 @@ agentRouter.post('/request', async (req, res, next) => {
       },
     });
 
-    // Fetch full agent data so admin queue can display the agent's name immediately
+    // Fetch agent data for the queue notification (id + email only — safe before migration runs)
     const agent = await prisma.user.findUnique({
       where: { id: agentId },
-      select: { id: true, email: true, firstName: true, lastName: true },
+      select: { id: true, email: true },
     });
     getIo()?.notifyNewRequest({ ...marxRequest, agent });
 
