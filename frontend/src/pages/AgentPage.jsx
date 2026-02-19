@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext.jsx';
 import api from '../lib/api.js';
@@ -15,6 +15,9 @@ export default function AgentPage() {
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
   const { soundEnabled, toggleSound, notify } = useMessageSound();
+  const [dragActive, setDragActive] = useState(false);
+  const [droppedFile, setDroppedFile] = useState(null);
+  const dragCounterRef = useRef(0);
 
   useEffect(() => {
     const s = io(import.meta.env.VITE_API_URL || '', { auth: { token } });
@@ -61,9 +64,40 @@ export default function AgentPage() {
     alert(`MARx request submitted (ID: ${data.id})`);
   }
 
-  async function sendMessage(content) {
-    const { data } = await api.post(`/messages/${activeConvId}`, { content });
+  async function sendMessage(content, file) {
+    let payload;
+    if (file) {
+      payload = new FormData();
+      payload.append('content', content);
+      payload.append('image', file);
+    } else {
+      payload = { content };
+    }
+    const { data } = await api.post(`/messages/${activeConvId}`, payload);
     setMessages(prev => [...prev, data]);
+  }
+
+  function handleDragEnter(e) {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items.length > 0) setDragActive(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setDragActive(false);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setDroppedFile(file);
+      setTimeout(() => setDroppedFile(null), 100);
+    }
   }
 
   return (
@@ -100,11 +134,34 @@ export default function AgentPage() {
           activeId={activeConvId}
           onSelect={setActiveConvId}
         />
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div
+          className="relative flex flex-1 flex-col overflow-hidden"
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+        >
+          {/* Drag-and-drop overlay */}
+          {dragActive && activeConvId && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center
+                            bg-gray-900/80 border-2 border-dashed border-blue-500 rounded-none pointer-events-none">
+              <div className="text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="w-12 h-12 text-blue-400 mx-auto mb-3">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                <p className="text-blue-400 font-semibold text-lg">Drop image to send</p>
+              </div>
+            </div>
+          )}
+
           {activeConvId ? (
             <>
               <MessageList messages={messages} currentUserId={user.id} />
-              <MessageInput onSend={sendMessage} />
+              <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
             </>
           ) : (
             <div className="m-auto text-center">

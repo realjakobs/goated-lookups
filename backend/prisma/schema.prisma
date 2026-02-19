@@ -80,6 +80,7 @@ model ConversationParticipant {
 /// `encryptedContent` holds base64(ciphertext).
 /// `iv` holds base64(initialization vector).
 /// Decryption requires the ENCRYPTION_KEY environment variable.
+/// Image fields follow the same encryption pattern as text content.
 model Message {
   id               String   @id @default(cuid())
   conversationId   String
@@ -87,6 +88,10 @@ model Message {
   encryptedContent String   // base64-encoded AES-256-GCM ciphertext
   iv               String   // base64-encoded 12-byte IV
   authTag          String   // base64-encoded 16-byte GCM auth tag
+  imageData        String?  // AES-256-GCM encrypted base64 of raw image bytes
+  imageIv          String?  // base64-encoded 12-byte IV for image
+  imageAuthTag     String?  // base64-encoded 16-byte GCM auth tag for image
+  imageMimeType    String?  // e.g. "image/png"
   createdAt        DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id])

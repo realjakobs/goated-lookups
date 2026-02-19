@@ -28,7 +28,21 @@ export default function MessageList({ messages, currentUserId }) {
                   {msg.sender?.email}
                 </div>
               )}
-              <div className="leading-relaxed">{msg.content}</div>
+
+              {msg.imageDataUrl && (
+                <img
+                  src={msg.imageDataUrl}
+                  alt="Shared image"
+                  className="max-w-[260px] w-full rounded-lg cursor-pointer mb-1"
+                  onClick={() => window.open(msg.imageDataUrl)}
+                  title="Click to open full size"
+                />
+              )}
+
+              {msg.content && (
+                <div className="leading-relaxed">{msg.content}</div>
+              )}
+
               <div className={`text-xs mt-1 text-right ${isMine ? 'text-blue-200' : 'text-gray-500'}`}>
                 {new Date(msg.createdAt).toLocaleTimeString()}
               </div>
