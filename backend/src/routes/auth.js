@@ -10,6 +10,8 @@ const prisma = require('../lib/prisma');
 const router = express.Router();
 const BCRYPT_ROUNDS = 12;
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 30;
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address').max(254),
@@ -77,11 +79,49 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = result.data;
 
     const user = await prisma.user.findUnique({ where: { email } });
+
+    // Check lockout before verifying password (avoids bcrypt timing on locked accounts)
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockedUntil - new Date()) / 60000);
+      return res.status(423).json({
+        error: `Account locked due to too many failed attempts. Try again in ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'}.`,
+      });
+    }
+
     const valid = user && await bcrypt.compare(password, user.passwordHash);
+
     if (!valid) {
+      // Increment failed attempts and potentially lock the account
+      if (user) {
+        const attempts = user.failedLoginAttempts + 1;
+        const shouldLock = attempts >= MAX_FAILED_ATTEMPTS;
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedLoginAttempts: attempts,
+            lockedUntil: shouldLock
+              ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
+              : undefined,
+          },
+        });
+        await prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            action: 'LOGIN_FAILED',
+            details: { email, attempts, locked: shouldLock },
+            ipAddress: req.ip,
+          },
+        });
+      }
       // Same message for both cases to avoid user enumeration
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // Successful login — reset lockout counters
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
 
     await prisma.auditLog.create({
       data: {

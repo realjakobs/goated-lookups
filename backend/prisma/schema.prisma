@@ -30,12 +30,14 @@ enum MARxRequestStatus {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(AGENT)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  passwordHash        String
+  role                Role      @default(AGENT)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   sentMessages     Message[]                 @relation("SentMessages")
   conversations    ConversationParticipant[]
