@@ -14,6 +14,7 @@ const conversationsRoutes = require('./routes/conversations');
 const { adminRouter, agentRouter } = require('./routes/admin');
 const initSocket = require('./socket');
 const prisma = require('./lib/prisma');
+const { setIo } = require('./lib/socketio');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -82,6 +83,7 @@ const io = new Server(httpServer, {
   },
 });
 initSocket(io);
+setIo(io); // make io accessible to route handlers
 
 // ---------------------------------------------------------------------------
 // Start

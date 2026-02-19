@@ -38,22 +38,33 @@ export default function AgentPage() {
 
   useEffect(() => {
     if (!socket) return;
+
     const onMessage = (msg) => {
-      if (msg.conversationId === activeConvId) {
+      // Only add messages from others — we already add our own locally on send
+      if (msg.conversationId === activeConvId && msg.sender?.id !== user.id) {
         setMessages(prev => [...prev, msg]);
-        if (msg.sender?.id !== user.id) notify();
+        notify();
       }
     };
+
     const onExpired = ({ conversationId, messageIds }) => {
       if (conversationId === activeConvId) {
         setMessages(prev => prev.filter(m => !messageIds.includes(m.id)));
       }
     };
+
+    // Admin claimed the request — refresh conversations so the status updates
+    const onClaimedByAdmin = () => {
+      api.get('/conversations').then(r => setConversations(r.data));
+    };
+
     socket.on('new-message', onMessage);
     socket.on('messages-expired', onExpired);
+    socket.on('request-claimed-by-admin', onClaimedByAdmin);
     return () => {
       socket.off('new-message', onMessage);
       socket.off('messages-expired', onExpired);
+      socket.off('request-claimed-by-admin', onClaimedByAdmin);
     };
   }, [socket, activeConvId, user.id, notify]);
 
@@ -61,7 +72,8 @@ export default function AgentPage() {
     const { data } = await api.post('/admin/request');
     const convRes = await api.get('/conversations');
     setConversations(convRes.data);
-    alert(`MARx request submitted (ID: ${data.id})`);
+    // Auto-navigate into the new conversation so agent can send info immediately
+    setActiveConvId(data.conversation.id);
   }
 
   async function sendMessage(content, file) {
@@ -141,10 +153,9 @@ export default function AgentPage() {
           onDragOver={e => e.preventDefault()}
           onDrop={handleDrop}
         >
-          {/* Drag-and-drop overlay */}
           {dragActive && activeConvId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center
-                            bg-gray-900/80 border-2 border-dashed border-blue-500 rounded-none pointer-events-none">
+                            bg-gray-900/80 border-2 border-dashed border-blue-500 pointer-events-none">
               <div className="text-center">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"

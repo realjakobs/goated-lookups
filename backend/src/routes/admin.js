@@ -5,16 +5,14 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
+const { getIo } = require('../lib/socketio');
 
 const INVITE_EXPIRY_HOURS = 48;
 
 const router = express.Router();
-
-// All admin routes require authentication + ADMIN role
 router.use(authenticate, requireRole('ADMIN'));
 
 // POST /api/admin/invites
-// Admin generates a single-use invite link for a new agent.
 router.post('/invites', async (req, res, next) => {
   try {
     const { id: adminId } = req.user;
@@ -43,7 +41,6 @@ router.post('/invites', async (req, res, next) => {
 });
 
 // GET /api/admin/users
-// Returns all agent accounts with status info.
 router.get('/users', async (req, res, next) => {
   try {
     const users = await prisma.user.findMany({
@@ -76,7 +73,6 @@ router.post('/users/:id/deactivate', async (req, res, next) => {
       select: { id: true, email: true, isActive: true },
     });
 
-    // Revoke all active refresh tokens so they're kicked out immediately
     await prisma.refreshToken.updateMany({
       where: { userId: id, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -125,7 +121,6 @@ router.post('/users/:id/activate', async (req, res, next) => {
 });
 
 // GET /api/admin/queue
-// Returns all PENDING MARx requests.
 router.get('/queue', async (req, res, next) => {
   try {
     const requests = await prisma.mARxRequest.findMany({
@@ -141,63 +136,59 @@ router.get('/queue', async (req, res, next) => {
   }
 });
 
-// POST /api/admin/queue/submit
-// Agent submits a new MARx lookup request.
-// (Re-exported here for clarity; agents can also hit this directly.)
-// Accessible by any authenticated user (not just admins) — so we remove
-// the ADMIN middleware for this specific route by splitting it out.
-// See note below — this route is handled in a separate router below.
-
 // POST /api/admin/claim/:requestId
-// Admin claims a pending request and creates a Conversation.
+// Admin claims a pending request — joins the conversation the agent already started.
 router.post('/claim/:requestId', async (req, res, next) => {
   try {
     const { id: adminId } = req.user;
     const { requestId } = req.params;
 
-    const request = await prisma.mARxRequest.findUnique({
-      where: { id: requestId },
-    });
+    const request = await prisma.mARxRequest.findUnique({ where: { id: requestId } });
 
-    if (!request) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
+    if (!request) return res.status(404).json({ error: 'Request not found' });
     if (request.status !== 'PENDING') {
       return res.status(409).json({ error: `Request is already ${request.status}` });
     }
+    if (!request.conversationId) {
+      return res.status(409).json({ error: 'No conversation attached to this request' });
+    }
 
-    // Create conversation and claim atomically
-    const [conversation, updatedRequest] = await prisma.$transaction(async (tx) => {
-      const conv = await tx.conversation.create({ data: {} });
-
-      // Add agent and admin as participants
-      await tx.conversationParticipant.createMany({
-        data: [
-          { userId: request.agentId, conversationId: conv.id },
-          { userId: adminId, conversationId: conv.id },
-        ],
-      });
-
-      const updated = await tx.mARxRequest.update({
-        where: { id: requestId },
-        data: {
-          status: 'CLAIMED',
-          claimedById: adminId,
-          claimedAt: new Date(),
-          conversationId: conv.id,
+    const updatedRequest = await prisma.$transaction(async (tx) => {
+      // Add admin to the existing conversation (upsert handles duplicates)
+      await tx.conversationParticipant.upsert({
+        where: {
+          userId_conversationId: {
+            userId: adminId,
+            conversationId: request.conversationId,
+          },
         },
+        create: { userId: adminId, conversationId: request.conversationId },
+        update: {},
       });
 
-      return [conv, updated];
+      return tx.mARxRequest.update({
+        where: { id: requestId },
+        data: { status: 'CLAIMED', claimedById: adminId, claimedAt: new Date() },
+      });
     });
 
     await prisma.auditLog.create({
       data: {
         userId: adminId,
         action: 'REQUEST_CLAIMED',
-        details: { requestId, conversationId: conversation.id, agentId: request.agentId },
+        details: { requestId, conversationId: request.conversationId, agentId: request.agentId },
         ipAddress: req.ip,
       },
+    });
+
+    const io = getIo();
+    if (io) {
+      io.notifyRequestClaimed(requestId, request.conversationId);
+      io.notifyAgentRequestClaimed(request.agentId, request.conversationId);
+    }
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: request.conversationId },
     });
 
     res.json({ conversation, request: updatedRequest });
@@ -214,9 +205,7 @@ router.post('/resolve/:requestId', async (req, res, next) => {
 
     const request = await prisma.mARxRequest.findUnique({ where: { id: requestId } });
 
-    if (!request) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
+    if (!request) return res.status(404).json({ error: 'Request not found' });
     if (request.status !== 'CLAIMED') {
       return res.status(409).json({ error: `Cannot resolve a request with status ${request.status}` });
     }
@@ -242,37 +231,50 @@ router.post('/resolve/:requestId', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Agent: submit MARx request (any authenticated user)
-// This is a separate router so it doesn't require the ADMIN role.
+// Agent router — any authenticated user
 // ---------------------------------------------------------------------------
 const agentRouter = express.Router();
 agentRouter.use(authenticate);
 
 // POST /api/admin/request
+// Creates a MARx request AND a conversation immediately so the agent can
+// send information before an admin claims it.
 agentRouter.post('/request', async (req, res, next) => {
   try {
     const { id: agentId } = req.user;
 
-    const marxRequest = await prisma.mARxRequest.create({
-      data: { agentId },
+    const [marxRequest, conversation] = await prisma.$transaction(async (tx) => {
+      const conv = await tx.conversation.create({ data: {} });
+
+      await tx.conversationParticipant.create({
+        data: { userId: agentId, conversationId: conv.id },
+      });
+
+      const mReq = await tx.mARxRequest.create({
+        data: { agentId, conversationId: conv.id },
+      });
+
+      return [mReq, conv];
     });
 
     await prisma.auditLog.create({
       data: {
         userId: agentId,
         action: 'MARX_REQUEST_SUBMITTED',
-        details: { requestId: marxRequest.id },
+        details: { requestId: marxRequest.id, conversationId: conversation.id },
         ipAddress: req.ip,
       },
     });
 
-    res.status(201).json(marxRequest);
+    getIo()?.notifyNewRequest({ ...marxRequest, agent: { id: agentId } });
+
+    res.status(201).json({ ...marxRequest, conversation });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/admin/my-requests — agent views their own requests
+// GET /api/admin/my-requests
 agentRouter.get('/my-requests', async (req, res, next) => {
   try {
     const { id: agentId } = req.user;
@@ -289,6 +291,4 @@ agentRouter.get('/my-requests', async (req, res, next) => {
   }
 });
 
-// Mount agent sub-router BEFORE the ADMIN-gated router so /request and
-// /my-requests are reachable without the ADMIN role.
 module.exports = { adminRouter: router, agentRouter };

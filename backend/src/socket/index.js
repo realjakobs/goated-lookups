@@ -10,15 +10,13 @@ const jwt = require('jsonwebtoken');
  *
  * Room conventions:
  *   - 'admin-queue'          — all connected admins
+ *   - 'user:<userId>'        — personal room per user (targeted notifications)
  *   - 'conversation:<id>'   — participants of a given conversation
  */
 function initSocket(io) {
-  // Middleware: authenticate every socket connection
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
-    if (!token) {
-      return next(new Error('Authentication token required'));
-    }
+    if (!token) return next(new Error('Authentication token required'));
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
       socket.user = payload;
@@ -32,12 +30,13 @@ function initSocket(io) {
     const { id: userId, role } = socket.user;
     console.log(`[socket] connected user=${userId} role=${role}`);
 
-    // Admins auto-join the shared queue room
+    // Each user joins their own personal room for targeted notifications
+    socket.join(`user:${userId}`);
+
     if (role === 'ADMIN') {
       socket.join('admin-queue');
     }
 
-    // Client asks to join a specific conversation room
     socket.on('join-conversation', (conversationId) => {
       if (typeof conversationId !== 'string') return;
       socket.join(`conversation:${conversationId}`);
@@ -53,7 +52,6 @@ function initSocket(io) {
     });
   });
 
-  // Expose helpers so routes can emit events
   io.notifyNewMessage = (conversationId, message) => {
     io.to(`conversation:${conversationId}`).emit('new-message', message);
   };
@@ -64,6 +62,11 @@ function initSocket(io) {
 
   io.notifyRequestClaimed = (requestId, conversationId) => {
     io.to('admin-queue').emit('request-claimed', { requestId, conversationId });
+  };
+
+  // Notify the specific agent that an admin joined their conversation
+  io.notifyAgentRequestClaimed = (agentId, conversationId) => {
+    io.to(`user:${agentId}`).emit('request-claimed-by-admin', { conversationId });
   };
 
   io.notifyMessagesExpired = (conversationId, messageIds) => {

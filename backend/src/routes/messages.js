@@ -6,6 +6,7 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
 const { encrypt, decrypt } = require('../lib/crypto');
+const { getIo } = require('../lib/socketio');
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4 MB
@@ -137,14 +138,19 @@ router.post('/:conversationId', upload.single('image'), async (req, res, next) =
       data: { updatedAt: new Date() },
     });
 
-    res.status(201).json({
+    const outgoing = {
       id: message.id,
       conversationId: message.conversationId,
       sender: message.sender,
       content: trimmedContent,
       imageDataUrl,
       createdAt: message.createdAt,
-    });
+    };
+
+    // Notify everyone else in the conversation room
+    getIo()?.notifyNewMessage(conversationId, outgoing);
+
+    res.status(201).json(outgoing);
   } catch (err) {
     // multer file size / type errors
     if (err.message === 'Only image files are allowed') {

@@ -1,5 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 
+function getSenderLabel(sender) {
+  if (sender?.role === 'ADMIN') return 'Admin';
+  // Show the part of the email before @ as the agent's display name
+  return sender?.email?.split('@')[0] ?? 'Agent';
+}
+
 export default function MessageList({ messages, currentUserId }) {
   const bottomRef = useRef(null);
 
@@ -25,7 +31,7 @@ export default function MessageList({ messages, currentUserId }) {
             >
               {!isMine && (
                 <div className="text-xs font-semibold text-blue-400 mb-1">
-                  {msg.sender?.email}
+                  {getSenderLabel(msg.sender)}
                 </div>
               )}
 
@@ -42,10 +48,6 @@ export default function MessageList({ messages, currentUserId }) {
               {msg.content && (
                 <div className="leading-relaxed">{msg.content}</div>
               )}
-
-              <div className={`text-xs mt-1 text-right ${isMine ? 'text-blue-200' : 'text-gray-500'}`}>
-                {new Date(msg.createdAt).toLocaleTimeString()}
-              </div>
             </div>
           </div>
         );

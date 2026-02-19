@@ -43,17 +43,21 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!socket) return;
+
     const onMessage = (msg) => {
-      if (msg.conversationId === activeConvId) {
+      // Only add messages from others — we already add our own locally on send
+      if (msg.conversationId === activeConvId && msg.sender?.id !== user.id) {
         setMessages(prev => [...prev, msg]);
-        if (msg.sender?.id !== user.id) notify();
+        notify();
       }
     };
+
     const onExpired = ({ conversationId, messageIds }) => {
       if (conversationId === activeConvId) {
         setMessages(prev => prev.filter(m => !messageIds.includes(m.id)));
       }
     };
+
     socket.on('new-message', onMessage);
     socket.on('messages-expired', onExpired);
     return () => {
@@ -209,7 +213,6 @@ export default function AdminPage() {
           onDragOver={e => e.preventDefault()}
           onDrop={handleDrop}
         >
-          {/* Drag-and-drop overlay */}
           {dragActive && activeConvId && (
             <div className="absolute inset-0 z-10 flex items-center justify-center
                             bg-gray-900/80 border-2 border-dashed border-blue-500 pointer-events-none">
