@@ -6,13 +6,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { sendUnlockEmail } = require('../lib/email');
+const { sendUnlockEmail, sendOtpEmail } = require('../lib/email');
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 12;
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 const UNLOCK_TOKEN_EXPIRY_HOURS = 1;
 const MAX_FAILED_ATTEMPTS = 5;
+const OTP_EXPIRY_MINUTES = 5;
+const OTP_MAX_ATTEMPTS = 5;
 
 const SECURITY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -205,10 +207,162 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Successful login — reset lockout counters
+    // Successful password — reset lockout counters
     await prisma.user.update({
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    // Invalidate any prior unused OTPs for this user
+    await prisma.otpCode.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    // Generate and store OTP
+    const plainOtp = generateOtp();
+    const codeHash = hashToken(plainOtp);
+    const otpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+    await prisma.otpCode.create({
+      data: { codeHash, userId: user.id, expiresAt: otpExpiresAt },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'OTP_SENT',
+        details: { email: user.email },
+        ipAddress: req.ip,
+      },
+    });
+
+    // Fire-and-forget email
+    sendOtpEmail(user.email, plainOtp).catch(err =>
+      console.error('[email] Failed to send OTP email:', err),
+    );
+
+    const pending2faToken = signPending2faToken(user);
+    res.json({ requires2FA: true, tempToken: pending2faToken });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/verify-otp
+// Verifies the 6-digit OTP and issues the real token pair.
+// ---------------------------------------------------------------------------
+const verifyOtpSchema = z.object({
+  otp: z.string().length(6, 'OTP must be 6 digits').regex(/^\d{6}$/, 'OTP must be numeric'),
+});
+
+router.post('/verify-otp', async (req, res, next) => {
+  try {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing authorization header' });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(header.slice(7), process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired verification session. Please log in again.' });
+    }
+
+    if (!payload.pending2FA) {
+      return res.status(400).json({ error: 'Invalid token type' });
+    }
+
+    const result = verifyOtpSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.issues[0].message });
+    }
+    const { otp } = result.data;
+
+    // Find the most recent unused, non-expired OTP for this user
+    const otpRecord = await prisma.otpCode.findFirst({
+      where: {
+        userId: payload.id,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!otpRecord) {
+      await prisma.auditLog.create({
+        data: {
+          userId: payload.id,
+          action: 'OTP_FAILED',
+          details: { reason: 'no_valid_otp' },
+          ipAddress: req.ip,
+        },
+      });
+      return res.status(401).json({ error: 'No valid verification code found. Please log in again.' });
+    }
+
+    // Check attempt limit
+    if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+      await prisma.otpCode.update({
+        where: { id: otpRecord.id },
+        data: { usedAt: new Date() },
+      });
+      await prisma.auditLog.create({
+        data: {
+          userId: payload.id,
+          action: 'OTP_FAILED',
+          details: { reason: 'max_attempts_exceeded' },
+          ipAddress: req.ip,
+        },
+      });
+      return res.status(401).json({ error: 'Too many failed attempts. Please log in again.' });
+    }
+
+    // Verify the OTP
+    const codeHash = hashToken(otp);
+    if (codeHash !== otpRecord.codeHash) {
+      await prisma.otpCode.update({
+        where: { id: otpRecord.id },
+        data: { attempts: otpRecord.attempts + 1 },
+      });
+      await prisma.auditLog.create({
+        data: {
+          userId: payload.id,
+          action: 'OTP_FAILED',
+          details: { reason: 'wrong_code', attempts: otpRecord.attempts + 1 },
+          ipAddress: req.ip,
+        },
+      });
+      const remaining = OTP_MAX_ATTEMPTS - (otpRecord.attempts + 1);
+      return res.status(401).json({
+        error: `Incorrect verification code. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`,
+      });
+    }
+
+    // OTP correct — mark as used
+    await prisma.otpCode.update({
+      where: { id: otpRecord.id },
+      data: { usedAt: new Date() },
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, role: true, firstName: true, lastName: true, isActive: true },
+    });
+
+    if (!user || !user.isActive) {
+      return res.status(403).json({ error: 'Account is deactivated.' });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'OTP_VERIFIED',
+        details: { email: user.email },
+        ipAddress: req.ip,
+      },
     });
 
     await prisma.auditLog.create({
@@ -402,6 +556,18 @@ function signToken(user) {
     process.env.JWT_SECRET,
     { expiresIn: '15m' },
   );
+}
+
+function signPending2faToken(user) {
+  return jwt.sign(
+    { id: user.id, email: user.email, pending2FA: true },
+    process.env.JWT_SECRET,
+    { expiresIn: '5m' },
+  );
+}
+
+function generateOtp() {
+  return crypto.randomInt(0, 1000000).toString().padStart(6, '0');
 }
 
 function hashToken(plaintext) {

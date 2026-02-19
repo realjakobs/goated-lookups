@@ -19,6 +19,7 @@ function initSocket(io) {
     if (!token) return next(new Error('Authentication token required'));
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
+      if (payload.pending2FA) return next(new Error('Two-factor verification required'));
       socket.user = payload;
       next();
     } catch {

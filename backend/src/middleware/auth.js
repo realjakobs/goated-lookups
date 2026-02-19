@@ -15,6 +15,9 @@ function authenticate(req, res, next) {
   const token = header.slice(7);
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (payload.pending2FA) {
+      return res.status(403).json({ error: 'Two-factor verification required. Please complete the login process.' });
+    }
     req.user = payload; // { id, email, role, iat, exp }
     next();
   } catch {

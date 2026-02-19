@@ -23,4 +23,21 @@ async function sendUnlockEmail(toEmail, unlockToken) {
   });
 }
 
-module.exports = { sendUnlockEmail };
+async function sendOtpEmail(toEmail, otpCode) {
+  await resend.emails.send({
+    from: FROM_EMAIL,
+    to: toEmail,
+    subject: 'Your Goated Lookups verification code',
+    html: `
+      <p>Your <strong>Goated Lookups</strong> verification code is:</p>
+      <p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;
+                padding:16px;background:#f4f4f5;border-radius:8px;font-family:monospace;">
+        ${otpCode}
+      </p>
+      <p>This code expires in <strong>5 minutes</strong>.</p>
+      <p>If you did not attempt to log in, contact your administrator immediately.</p>
+    `,
+  });
+}
+
+module.exports = { sendUnlockEmail, sendOtpEmail };
