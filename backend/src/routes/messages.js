@@ -38,6 +38,15 @@ router.get('/:conversationId', async (req, res, next) => {
       createdAt: m.createdAt,
     }));
 
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'MESSAGES_VIEWED',
+        details: { conversationId, messageCount: messages.length },
+        ipAddress: req.ip,
+      },
+    });
+
     res.json(decrypted);
   } catch (err) {
     next(err);
