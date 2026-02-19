@@ -1,0 +1,130 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  AGENT
+  ADMIN
+}
+
+enum MARxRequestStatus {
+  PENDING
+  CLAIMED
+  RESOLVED
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(AGENT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sentMessages     Message[]                 @relation("SentMessages")
+  conversations    ConversationParticipant[]
+  marxRequests     MARxRequest[]             @relation("AgentRequests")
+  claimedRequests  MARxRequest[]             @relation("ClaimedRequests")
+  auditLogs        AuditLog[]
+  refreshTokens    RefreshToken[]
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  marxRequest  MARxRequest?
+}
+
+/// Join table that controls which users may read a conversation.
+/// Route-layer access checks MUST verify membership before returning data.
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  userId         String
+  conversationId String
+  joinedAt       DateTime     @default(now())
+
+  user         User         @relation(fields: [userId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@unique([userId, conversationId])
+}
+
+/// All message content is AES-256-GCM encrypted.
+/// `encryptedContent` holds base64(ciphertext).
+/// `iv` holds base64(initialization vector).
+/// Decryption requires the ENCRYPTION_KEY environment variable.
+model Message {
+  id               String   @id @default(cuid())
+  conversationId   String
+  senderId         String
+  encryptedContent String   // base64-encoded AES-256-GCM ciphertext
+  iv               String   // base64-encoded 12-byte IV
+  authTag          String   // base64-encoded 16-byte GCM auth tag
+  createdAt        DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation("SentMessages", fields: [senderId], references: [id])
+}
+
+/// Tracks the lifecycle of an agent's MARx lookup request.
+/// One request maps to one Conversation once an admin claims it.
+model MARxRequest {
+  id             String            @id @default(cuid())
+  agentId        String
+  conversationId String?           @unique
+  status         MARxRequestStatus @default(PENDING)
+  claimedById    String?
+  claimedAt      DateTime?
+  resolvedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  agent        User          @relation("AgentRequests", fields: [agentId], references: [id])
+  claimedBy    User?         @relation("ClaimedRequests", fields: [claimedById], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+}
+
+/// Hashed refresh tokens — plaintext is sent to the client only at issuance.
+/// Token rotation is applied on every use (old token revoked, new one issued).
+model RefreshToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique  // SHA-256(plaintext token)
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+/// Append-only HIPAA audit trail. Never delete rows from this table.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String   // e.g. "MESSAGE_SENT", "REQUEST_CLAIMED", "LOGIN"
+  details   Json     // structured context (conversationId, requestId, etc.)
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}

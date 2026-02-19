@@ -1,0 +1,21 @@
+{
+  "name": "goated-lookups",
+  "version": "1.0.0",
+  "description": "HIPAA-compliant encrypted messaging platform",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "start:backend": "npm run start --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "prisma:generate": "npm run prisma:generate --workspace=backend",
+    "prisma:migrate": "npm run prisma:migrate --workspace=backend"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
