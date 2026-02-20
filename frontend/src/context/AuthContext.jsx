@@ -6,25 +6,25 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
-      const stored = localStorage.getItem('user');
+      const stored = sessionStorage.getItem('user');
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
     }
   });
 
-  const [token, setToken] = useState(() => localStorage.getItem('token') || null);
+  const [token, setToken] = useState(() => sessionStorage.getItem('token') || null);
 
   const login = useCallback((newToken, newUser, newRefreshToken) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    if (newRefreshToken) localStorage.setItem('refreshToken', newRefreshToken);
+    sessionStorage.setItem('token', newToken);
+    sessionStorage.setItem('user', JSON.stringify(newUser));
+    if (newRefreshToken) sessionStorage.setItem('refreshToken', newRefreshToken);
     setToken(newToken);
     setUser(newUser);
   }, []);
 
   const logout = useCallback(async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
+    const refreshToken = sessionStorage.getItem('refreshToken');
     // Use plain axios (not the api instance) to avoid the 401 interceptor
     try {
       if (refreshToken) {
@@ -33,9 +33,9 @@ export function AuthProvider({ children }) {
     } catch {
       // Ignore — we always clear local state regardless
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('user');
     setToken(null);
     setUser(null);
   }, []);

@@ -38,7 +38,7 @@ router.get('/:conversationId', async (req, res, next) => {
     const { id: userId, role } = req.user;
     const { conversationId } = req.params;
 
-    await assertParticipant(userId, role, conversationId, res);
+    await assertParticipant(userId, role, conversationId, res, req);
     if (res.headersSent) return;
 
     const messages = await prisma.message.findMany({
@@ -95,7 +95,7 @@ router.post('/:conversationId', upload.single('image'), async (req, res, next) =
       return res.status(400).json({ error: 'Message must have text or an image' });
     }
 
-    await assertParticipant(userId, role, conversationId, res);
+    await assertParticipant(userId, role, conversationId, res, req);
     if (res.headersSent) return;
 
     const { encryptedContent, iv, authTag } = encrypt(trimmedContent);
@@ -167,7 +167,7 @@ router.post('/:conversationId', upload.single('image'), async (req, res, next) =
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function assertParticipant(userId, role, conversationId, res) {
+async function assertParticipant(userId, role, conversationId, res, req) {
   if (role === 'ADMIN') return; // admins bypass participant check
 
   const participant = await prisma.conversationParticipant.findUnique({
@@ -177,6 +177,19 @@ async function assertParticipant(userId, role, conversationId, res) {
   });
 
   if (!participant) {
+    prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'AUTHORIZATION_FAILED',
+        details: {
+          reason: 'not_participant',
+          conversationId,
+          path: req.originalUrl,
+          method: req.method,
+        },
+        ipAddress: req.ip,
+      },
+    }).catch(() => {});
     res.status(403).json({ error: 'Access denied' });
   }
 }

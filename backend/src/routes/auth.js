@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { sendUnlockEmail, sendOtpEmail } = require('../lib/email');
+const { sendUnlockEmail, sendOtpEmail, sendPasswordResetEmail } = require('../lib/email');
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 12;
@@ -15,6 +15,22 @@ const UNLOCK_TOKEN_EXPIRY_HOURS = 1;
 const MAX_FAILED_ATTEMPTS = 5;
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_MAX_ATTEMPTS = 5;
+const PASSWORD_RESET_EXPIRY_HOURS = 1;
+const PASSWORD_HISTORY_COUNT = 3;
+
+/**
+ * Validates password complexity.
+ * Returns null if valid, or an error message string.
+ */
+function validatePasswordComplexity(password) {
+  if (password.length < 12) return 'Password must be at least 12 characters';
+  if (password.length > 128) return 'Password must be at most 128 characters';
+  if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter';
+  if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter';
+  if (!/[0-9]/.test(password)) return 'Password must contain at least one number';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Password must contain at least one special character';
+  return null;
+}
 
 const SECURITY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -30,7 +46,7 @@ const registerSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
   lastName: z.string().min(1, 'Last name is required').max(100),
   email: z.string().email('Invalid email address').max(254),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: z.string().min(12, 'Password must be at least 12 characters').max(128),
   inviteToken: z.string().min(1, 'Invite token is required'),
   securityQuestion: z.string().min(1, 'Security question is required'),
   securityAnswer: z.string().min(1, 'Security answer is required').max(200),
@@ -90,6 +106,11 @@ router.post('/register', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid security question.' });
     }
 
+    const complexityError = validatePasswordComplexity(password);
+    if (complexityError) {
+      return res.status(400).json({ error: complexityError });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
@@ -120,6 +141,11 @@ router.post('/register', async (req, res, next) => {
         data: { usedAt: new Date() },
       }),
     ]);
+
+    // Save initial password to history
+    await prisma.passwordHistory.create({
+      data: { userId: user.id, passwordHash },
+    });
 
     await prisma.auditLog.create({
       data: {
@@ -176,7 +202,11 @@ router.post('/login', async (req, res, next) => {
 
         await prisma.user.update({
           where: { id: user.id },
-          data: { failedLoginAttempts: attempts, lockedUntil },
+          data: {
+            failedLoginAttempts: attempts,
+            lockedUntil,
+            ...(shouldLock && { force2FA: true }),
+          },
         });
 
         await prisma.auditLog.create({
@@ -213,6 +243,41 @@ router.post('/login', async (req, res, next) => {
       data: { failedLoginAttempts: 0, lockedUntil: null },
     });
 
+    // Determine if 2FA is required
+    const SKIP_2FA_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+    const recentLogin = user.lastLoginAt &&
+      (Date.now() - user.lastLoginAt.getTime()) < SKIP_2FA_WINDOW_MS;
+    const skip2FA = recentLogin && !user.force2FA;
+
+    if (skip2FA) {
+      // Recent login and no forced 2FA — issue tokens directly
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'LOGIN',
+          details: { email: user.email, skipped2FA: true },
+          ipAddress: req.ip,
+        },
+      });
+
+      const { accessToken, refreshToken } = await issueTokenPair({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      });
+      return res.json({
+        token: accessToken,
+        refreshToken,
+        user: { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName },
+      });
+    }
+
+    // 2FA required — generate and send OTP
     // Invalidate any prior unused OTPs for this user
     await prisma.otpCode.updateMany({
       where: { userId: user.id, usedAt: null },
@@ -341,10 +406,15 @@ router.post('/verify-otp', async (req, res, next) => {
       });
     }
 
-    // OTP correct — mark as used
+    // OTP correct — mark as used and update login timestamp
     await prisma.otpCode.update({
       where: { id: otpRecord.id },
       data: { usedAt: new Date() },
+    });
+
+    await prisma.user.update({
+      where: { id: payload.id },
+      data: { lastLoginAt: new Date(), force2FA: false },
     });
 
     const user = await prisma.user.findUnique({
@@ -477,6 +547,152 @@ router.post('/unlock/:token', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/auth/request-password-reset
+// Always returns success to avoid revealing whether an email exists.
+// ---------------------------------------------------------------------------
+router.post('/request-password-reset', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (user && user.isActive) {
+      // Invalidate any prior unused reset tokens
+      await prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      const plainToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = hashToken(plainToken);
+      const expiresAt = new Date(Date.now() + PASSWORD_RESET_EXPIRY_HOURS * 60 * 60 * 1000);
+
+      await prisma.passwordResetToken.create({
+        data: { tokenHash, userId: user.id, expiresAt },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'PASSWORD_RESET_REQUESTED',
+          details: { email: user.email },
+          ipAddress: req.ip,
+        },
+      });
+
+      sendPasswordResetEmail(user.email, plainToken).catch(err =>
+        console.error('[email] Failed to send password reset email:', err),
+      );
+    }
+
+    res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/auth/reset-password/:token
+// Validates the reset token without consuming it.
+// ---------------------------------------------------------------------------
+router.get('/reset-password/:token', async (req, res, next) => {
+  try {
+    const tokenHash = hashToken(req.params.token);
+    const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'This reset link is invalid or has expired.' });
+    }
+
+    res.json({ valid: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/reset-password/:token
+// Validates the token, checks password complexity & history, updates password.
+// ---------------------------------------------------------------------------
+const resetPasswordSchema = z.object({
+  password: z.string().min(12, 'Password must be at least 12 characters').max(128),
+});
+
+router.post('/reset-password/:token', async (req, res, next) => {
+  try {
+    const tokenHash = hashToken(req.params.token);
+    const resetToken = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'This reset link is invalid or has expired.' });
+    }
+
+    const result = resetPasswordSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.issues[0].message });
+    }
+    const { password } = result.data;
+
+    const complexityError = validatePasswordComplexity(password);
+    if (complexityError) {
+      return res.status(400).json({ error: complexityError });
+    }
+
+    const { user } = resetToken;
+
+    // Check against last 3 passwords
+    const recentPasswords = await prisma.passwordHistory.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: PASSWORD_HISTORY_COUNT,
+    });
+
+    for (const entry of recentPasswords) {
+      const reused = await bcrypt.compare(password, entry.passwordHash);
+      if (reused) {
+        return res.status(400).json({ error: 'Cannot reuse your last 3 passwords. Please choose a different password.' });
+      }
+    }
+
+    const newPasswordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    // Update password, save to history, mark token used — atomically
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: newPasswordHash },
+      }),
+      prisma.passwordHistory.create({
+        data: { userId: user.id, passwordHash: newPasswordHash },
+      }),
+      prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'PASSWORD_RESET_COMPLETED',
+        details: { email: user.email },
+        ipAddress: req.ip,
+      },
+    });
+
+    res.json({ message: 'Password has been reset. You may now log in.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/auth/refresh
 // ---------------------------------------------------------------------------
 router.post('/refresh', async (req, res, next) => {
@@ -530,6 +746,20 @@ router.post('/logout', async (req, res, next) => {
         data: { revokedAt: new Date() },
       });
     }
+
+    // Fallback: extract userId from JWT if refresh token didn't resolve one
+    if (!userId) {
+      try {
+        const header = req.headers.authorization;
+        if (header && header.startsWith('Bearer ')) {
+          const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET);
+          userId = payload.id;
+        }
+      } catch {
+        // Token may be expired — that's fine, best-effort
+      }
+    }
+
     if (userId) {
       await prisma.auditLog.create({
         data: {

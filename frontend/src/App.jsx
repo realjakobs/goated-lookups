@@ -6,6 +6,8 @@ import AgentPage from './pages/AgentPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import UnlockPage from './pages/UnlockPage.jsx';
+import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
+import ResetPasswordPage from './pages/ResetPasswordPage.jsx';
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -78,6 +80,8 @@ export default function App() {
           />
           <Route path="/register/:token" element={<RegisterPage />} />
           <Route path="/unlock/:token" element={<UnlockPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

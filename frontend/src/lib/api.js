@@ -6,7 +6,7 @@ const api = axios.create({
 
 // Attach stored JWT to every request
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -30,9 +30,9 @@ function processQueue(error, token = null) {
 }
 
 function clearSession() {
-  localStorage.removeItem('token');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('user');
   window.location.href = '/login';
 }
 
@@ -46,7 +46,7 @@ api.interceptors.response.use(
       return Promise.reject(err);
     }
 
-    const refreshToken = localStorage.getItem('refreshToken');
+    const refreshToken = sessionStorage.getItem('refreshToken');
     if (!refreshToken) {
       clearSession();
       return Promise.reject(err);
@@ -70,9 +70,9 @@ api.interceptors.response.use(
     try {
       // Use plain axios so this call bypasses our interceptor
       const { data } = await axios.post('/api/auth/refresh', { refreshToken });
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      sessionStorage.setItem('token', data.token);
+      sessionStorage.setItem('refreshToken', data.refreshToken);
+      sessionStorage.setItem('user', JSON.stringify(data.user));
       api.defaults.headers.common.Authorization = `Bearer ${data.token}`;
       processQueue(null, data.token);
       original.headers.Authorization = `Bearer ${data.token}`;

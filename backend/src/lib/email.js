@@ -40,4 +40,21 @@ async function sendOtpEmail(toEmail, otpCode) {
   });
 }
 
-module.exports = { sendUnlockEmail, sendOtpEmail };
+async function sendPasswordResetEmail(toEmail, resetToken) {
+  const resetUrl = `${FRONTEND_URL}/reset-password/${resetToken}`;
+
+  await resend.emails.send({
+    from: FROM_EMAIL,
+    to: toEmail,
+    subject: 'Reset your Goated Lookups password',
+    html: `
+      <p>We received a request to reset your <strong>Goated Lookups</strong> password.</p>
+      <p>Click the link below to set a new password:</p>
+      <p><a href="${resetUrl}" style="display:inline-block;padding:10px 20px;background:#1a73e8;color:white;text-decoration:none;border-radius:4px;">Reset My Password</a></p>
+      <p>This link expires in <strong>1 hour</strong>.</p>
+      <p>If you did not request a password reset, you can safely ignore this email.</p>
+    `,
+  });
+}
+
+module.exports = { sendUnlockEmail, sendOtpEmail, sendPasswordResetEmail };

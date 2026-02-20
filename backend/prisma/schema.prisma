@@ -41,6 +41,8 @@ model User {
   lockedUntil         DateTime?
   securityQuestion    String?
   securityAnswerHash  String?
+  lastLoginAt         DateTime?
+  force2FA            Boolean   @default(false)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -51,8 +53,10 @@ model User {
   auditLogs        AuditLog[]
   refreshTokens    RefreshToken[]
   createdInvites   Invite[]                  @relation("CreatedInvites")
-  unlockTokens     UnlockToken[]
-  otpCodes         OtpCode[]
+  unlockTokens         UnlockToken[]
+  otpCodes             OtpCode[]
+  passwordResetTokens  PasswordResetToken[]
+  passwordHistory      PasswordHistory[]
 }
 
 model Conversation {
@@ -169,6 +173,30 @@ model OtpCode {
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+/// Single-use tokens emailed for password reset. Expires in 1 hour.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+/// Stores the last N bcrypt hashes to prevent password reuse.
+model PasswordHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }
 
 /// Append-only HIPAA audit trail. Never delete rows from this table.

@@ -63,6 +63,19 @@ router.get('/:id', async (req, res, next) => {
     // Agents must be a participant
     const isMember = conversation.participants.some(p => p.userId === userId);
     if (role !== 'ADMIN' && !isMember) {
+      prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'AUTHORIZATION_FAILED',
+          details: {
+            reason: 'not_participant',
+            conversationId: id,
+            path: req.originalUrl,
+            method: req.method,
+          },
+          ipAddress: req.ip,
+        },
+      }).catch(() => {});
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import api from '../lib/api.js';
 
@@ -100,6 +100,11 @@ export default function LoginPage() {
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                              transition duration-150"
                 />
+                <div className="mt-1.5 text-right">
+                  <Link to="/forgot-password" className="text-blue-400 hover:text-blue-300 text-xs transition duration-150">
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               {error && (
