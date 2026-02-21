@@ -3,6 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import api from '../lib/api.js';
 
+const PASSWORD_RULES = [
+  { label: 'At least 12 characters', test: p => p.length >= 12 },
+  { label: 'One uppercase letter', test: p => /[A-Z]/.test(p) },
+  { label: 'One lowercase letter', test: p => /[a-z]/.test(p) },
+  { label: 'One number', test: p => /[0-9]/.test(p) },
+  { label: 'One special character', test: p => /[^A-Za-z0-9]/.test(p) },
+];
+
 const inputCls = `w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500
   rounded-lg px-4 py-2.5 text-sm
   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
@@ -63,9 +71,14 @@ export default function RegisterPage() {
     return e => setForm(f => ({ ...f, [field]: e.target.value }));
   }
 
+  const allRulesMet = PASSWORD_RULES.every(r => r.test(form.password));
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    if (!allRulesMet) {
+      return setError('Password does not meet all requirements.');
+    }
     if (form.password !== form.confirmPassword) {
       return setError('Passwords do not match.');
     }
@@ -163,10 +176,23 @@ export default function RegisterPage() {
                 value={form.password}
                 onChange={set('password')}
                 required
-                minLength={8}
-                placeholder="Min. 8 characters"
+                placeholder="Min. 12 characters"
                 className={inputCls}
               />
+              {form.password.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {PASSWORD_RULES.map(rule => (
+                    <li key={rule.label} className="flex items-center gap-2 text-xs">
+                      <span className={rule.test(form.password) ? 'text-green-400' : 'text-gray-500'}>
+                        {rule.test(form.password) ? '✓' : '○'}
+                      </span>
+                      <span className={rule.test(form.password) ? 'text-green-400' : 'text-gray-500'}>
+                        {rule.label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div>
@@ -215,7 +241,7 @@ export default function RegisterPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !allRulesMet || form.password !== form.confirmPassword}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed
                          text-white font-semibold rounded-lg px-4 py-2.5 text-sm
                          transition duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"

@@ -504,6 +504,11 @@ router.post('/unlock/:token', async (req, res, next) => {
 
     const { user } = unlockToken;
 
+    // If an admin has deactivated this account, unlock should not be permitted
+    if (!user.isActive) {
+      return res.status(403).json({ error: 'Your account has been deactivated. Contact your administrator.' });
+    }
+
     const answerValid = user.securityAnswerHash &&
       await bcrypt.compare(securityAnswer.toLowerCase().trim(), user.securityAnswerHash);
 
@@ -662,7 +667,7 @@ router.post('/reset-password/:token', async (req, res, next) => {
 
     const newPasswordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // Update password, save to history, mark token used — atomically
+    // Update password, save to history, mark token used, revoke all sessions — atomically
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
@@ -674,6 +679,11 @@ router.post('/reset-password/:token', async (req, res, next) => {
       prisma.passwordResetToken.update({
         where: { id: resetToken.id },
         data: { usedAt: new Date() },
+      }),
+      // Revoke all existing sessions so old tokens can no longer be used
+      prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
       }),
     ]);
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const prisma = require('../lib/prisma');
 
 /**
  * Socket.io event handler setup.
@@ -38,9 +39,20 @@ function initSocket(io) {
       socket.join('admin-queue');
     }
 
-    socket.on('join-conversation', (conversationId) => {
+    socket.on('join-conversation', async (conversationId) => {
       if (typeof conversationId !== 'string') return;
-      socket.join(`conversation:${conversationId}`);
+      try {
+        const participant = await prisma.conversationParticipant.findUnique({
+          where: { userId_conversationId: { userId, conversationId } },
+        });
+        if (!participant) {
+          socket.emit('error', { message: 'Not authorized to join this conversation' });
+          return;
+        }
+        socket.join(`conversation:${conversationId}`);
+      } catch {
+        // silently ignore — never crash the socket on a DB error
+      }
     });
 
     socket.on('leave-conversation', (conversationId) => {
