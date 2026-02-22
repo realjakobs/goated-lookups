@@ -19,6 +19,11 @@ const { setIo } = require('./lib/socketio');
 const app = express();
 const httpServer = http.createServer(app);
 
+// Trust one level of proxy (Render, nginx, etc.) so req.ip resolves to the
+// real client IP from X-Forwarded-For instead of the proxy's IP.
+// Without this, all users share the same rate-limit bucket.
+app.set('trust proxy', 1);
+
 // ---------------------------------------------------------------------------
 // Security middleware
 // ---------------------------------------------------------------------------
