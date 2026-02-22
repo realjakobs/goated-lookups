@@ -168,7 +168,23 @@ router.post('/:conversationId', upload.single('image'), async (req, res, next) =
 // ---------------------------------------------------------------------------
 
 async function assertParticipant(userId, role, conversationId, res, req) {
-  if (role === 'ADMIN') return; // admins bypass participant check
+  if (role === 'ADMIN') {
+    // Admins can always access, but log when they access a conversation they haven't formally joined
+    const participant = await prisma.conversationParticipant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+    });
+    if (!participant) {
+      prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'ADMIN_CONVERSATION_ACCESS',
+          details: { conversationId, reason: 'not_participant', path: req.originalUrl, method: req.method },
+          ipAddress: req.ip,
+        },
+      }).catch(() => {});
+    }
+    return;
+  }
 
   const participant = await prisma.conversationParticipant.findUnique({
     where: {

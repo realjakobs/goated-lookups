@@ -29,8 +29,19 @@ function initSocket(io) {
   });
 
   io.on('connection', (socket) => {
-    const { id: userId, role } = socket.user;
+    const { id: userId, role, exp } = socket.user;
     console.log(`[socket] connected user=${userId} role=${role}`);
+
+    // Force-disconnect when the JWT expires so sessions can't outlive their token
+    if (exp) {
+      const msUntilExpiry = exp * 1000 - Date.now();
+      if (msUntilExpiry > 0) {
+        setTimeout(() => socket.disconnect(true), msUntilExpiry);
+      } else {
+        // Token already expired — shouldn't happen but guard anyway
+        socket.disconnect(true);
+      }
+    }
 
     // Each user joins their own personal room for targeted notifications
     socket.join(`user:${userId}`);

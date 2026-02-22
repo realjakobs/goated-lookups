@@ -36,6 +36,11 @@ app.use(helmet({
       baseUri: ["'self'"],
     },
   },
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true,
+  },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use(cors({
@@ -83,9 +88,14 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // Central error handler
 // ---------------------------------------------------------------------------
 app.use((err, _req, res, _next) => {
-  console.error('[error]', err);
   const status = err.status || 500;
-  res.status(status).json({ error: err.message || 'Internal server error' });
+  if (status >= 500) {
+    // Log full details server-side but never expose internals to client
+    console.error('[error]', err);
+    return res.status(status).json({ error: 'Internal server error' });
+  }
+  // 4xx errors are safe to relay (validation messages, not-found, etc.)
+  res.status(status).json({ error: err.message || 'Bad request' });
 });
 
 // ---------------------------------------------------------------------------

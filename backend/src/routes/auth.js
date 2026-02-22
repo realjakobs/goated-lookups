@@ -4,9 +4,19 @@ const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { sendUnlockEmail, sendOtpEmail, sendPasswordResetEmail } = require('../lib/email');
+
+// Strict per-IP limiter for sensitive one-time-use endpoints (OTP verify, account unlock)
+const sensitiveOpLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5-minute window
+  max: 5,                   // 5 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait 5 minutes and try again.' },
+});
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 12;
@@ -322,7 +332,7 @@ const verifyOtpSchema = z.object({
   otp: z.string().length(6, 'OTP must be 6 digits').regex(/^\d{6}$/, 'OTP must be numeric'),
 });
 
-router.post('/verify-otp', async (req, res, next) => {
+router.post('/verify-otp', sensitiveOpLimiter, async (req, res, next) => {
   try {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
@@ -463,7 +473,7 @@ router.post('/verify-otp', async (req, res, next) => {
 // GET /api/auth/unlock/:token
 // Validates the unlock token and returns the user's security question.
 // ---------------------------------------------------------------------------
-router.get('/unlock/:token', async (req, res, next) => {
+router.get('/unlock/:token', sensitiveOpLimiter, async (req, res, next) => {
   try {
     const tokenHash = hashToken(req.params.token);
     const unlockToken = await prisma.unlockToken.findUnique({
@@ -485,7 +495,7 @@ router.get('/unlock/:token', async (req, res, next) => {
 // POST /api/auth/unlock/:token
 // Verifies the security answer and unlocks the account.
 // ---------------------------------------------------------------------------
-router.post('/unlock/:token', async (req, res, next) => {
+router.post('/unlock/:token', sensitiveOpLimiter, async (req, res, next) => {
   try {
     const { securityAnswer } = req.body;
     if (!securityAnswer || typeof securityAnswer !== 'string') {

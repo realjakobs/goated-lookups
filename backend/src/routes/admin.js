@@ -69,6 +69,16 @@ router.post('/users/:id/deactivate', async (req, res, next) => {
     const { id: adminId } = req.user;
     const { id } = req.params;
 
+    // Verify target is an AGENT — admins cannot deactivate other admins
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, role: true },
+    });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role !== 'AGENT') {
+      return res.status(403).json({ error: 'Only agent accounts can be deactivated through this interface.' });
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data: { isActive: false },
@@ -125,6 +135,8 @@ router.post('/users/:id/activate', async (req, res, next) => {
 // GET /api/admin/queue
 router.get('/queue', async (req, res, next) => {
   try {
+    const { id: adminId } = req.user;
+
     const requests = await prisma.mARxRequest.findMany({
       where: { status: 'PENDING' },
       include: {
@@ -132,6 +144,16 @@ router.get('/queue', async (req, res, next) => {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'ADMIN_QUEUE_VIEWED',
+        details: { requestCount: requests.length },
+        ipAddress: req.ip,
+      },
+    });
+
     res.json(requests);
   } catch (err) {
     next(err);

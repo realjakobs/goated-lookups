@@ -60,23 +60,39 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Agents must be a participant
+    // Agents must be a participant; admins are always allowed but access is audited
     const isMember = conversation.participants.some(p => p.userId === userId);
-    if (role !== 'ADMIN' && !isMember) {
+    if (!isMember) {
+      if (role !== 'ADMIN') {
+        prisma.auditLog.create({
+          data: {
+            userId,
+            action: 'AUTHORIZATION_FAILED',
+            details: {
+              reason: 'not_participant',
+              conversationId: id,
+              path: req.originalUrl,
+              method: req.method,
+            },
+            ipAddress: req.ip,
+          },
+        }).catch(() => {});
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      // Admin accessing a conversation they haven't formally joined — log it
       prisma.auditLog.create({
         data: {
           userId,
-          action: 'AUTHORIZATION_FAILED',
+          action: 'ADMIN_CONVERSATION_ACCESS',
           details: {
-            reason: 'not_participant',
             conversationId: id,
+            reason: 'not_participant',
             path: req.originalUrl,
             method: req.method,
           },
           ipAddress: req.ip,
         },
       }).catch(() => {});
-      return res.status(403).json({ error: 'Access denied' });
     }
 
     res.json(conversation);
