@@ -49,7 +49,20 @@ const SECURITY_QUESTIONS = [
   "What is your mother's maiden name?",
   'What was the name of your elementary school?',
   'What is the name of the street you grew up on?',
-  'What was the make of your first car?',
+  'What was the make and model of your first car?',
+  'What is the middle name of your oldest sibling?',
+  'What was the name of your favorite childhood friend?',
+  "What is your maternal grandmother's maiden name?",
+  'What was the name of the first company you worked for?',
+  'What was your favorite subject in high school?',
+  'In what city did your parents meet?',
+  'What was the name of your favorite childhood teacher?',
+  'What was the first concert or live event you attended?',
+  'What was the name of the hospital where you were born?',
+  'What is the name of the street you lived on in third grade?',
+  'What was your childhood best friend\'s last name?',
+  'What is the name of your favorite childhood sports team?',
+  'What was the title of your favorite book as a child?',
 ];
 
 const registerSchema = z.object({
