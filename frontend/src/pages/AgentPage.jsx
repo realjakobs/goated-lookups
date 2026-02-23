@@ -68,10 +68,53 @@ export default function AgentPage() {
     };
   }, [socket, activeConvId, user.id, notify]);
 
-  async function submitRequest() {
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [identifierType, setIdentifierType] = useState('NAME');
+  const [identifierValue, setIdentifierValue] = useState('');
+  const [idType, setIdType] = useState('SSN');
+  const [idValue, setIdValue] = useState('');
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  function openRequestModal() {
+    setIdentifierType('NAME');
+    setIdentifierValue('');
+    setIdType('SSN');
+    setIdValue('');
+    setFormError('');
+    setShowRequestModal(true);
+  }
+
+  async function submitRequest(e) {
+    e.preventDefault();
+    setFormError('');
+
+    // Client-side SSN validation
+    if (idType === 'SSN') {
+      const digits = idValue.replace(/\D/g, '');
+      if (digits.length !== 9) {
+        setFormError('SSN must be exactly 9 digits.');
+        return;
+      }
+    }
+    if (!identifierValue.trim()) {
+      setFormError(identifierType === 'NAME' ? 'Client name is required.' : 'Date of birth is required.');
+      return;
+    }
+    if (!idValue.trim()) {
+      setFormError(idType === 'SSN' ? 'SSN is required.' : 'MBI is required.');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const { data } = await api.post('/admin/request');
-      // Refresh conversation list; navigate to new conv regardless of whether refresh succeeds
+      const { data } = await api.post('/admin/request', {
+        clientIdentifierType: identifierType,
+        clientIdentifier: identifierValue.trim(),
+        clientIdType: idType,
+        clientId: idValue.trim(),
+      });
+      setShowRequestModal(false);
       try {
         const convRes = await api.get('/conversations');
         setConversations(convRes.data);
@@ -80,7 +123,9 @@ export default function AgentPage() {
       }
       setActiveConvId(data.conversation.id);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to submit request. Please try again.');
+      setFormError(err.response?.data?.error || 'Failed to submit request. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -130,7 +175,7 @@ export default function AgentPage() {
         </span>
         <div className="flex items-center gap-2">
           <button
-            onClick={submitRequest}
+            onClick={openRequestModal}
             className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium
                        px-4 py-1.5 rounded-lg transition duration-150
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
@@ -180,7 +225,17 @@ export default function AgentPage() {
           {activeConvId ? (
             <>
               <MessageList messages={messages} currentUserId={user.id} />
-              <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
+              {(() => {
+                const activeConv = conversations.find(c => c.id === activeConvId);
+                return activeConv?.marxRequest?.status === 'PENDING' ? (
+                  <div className="shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-4 text-center">
+                    <p className="text-gray-400 text-sm">Waiting for an admin to claim this request…</p>
+                    <p className="text-gray-500 text-xs mt-1">Messaging will unlock once your request is claimed.</p>
+                  </div>
+                ) : (
+                  <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
+                );
+              })()}
             </>
           ) : (
             <div className="m-auto text-center">
@@ -189,6 +244,113 @@ export default function AgentPage() {
           )}
         </div>
       </div>
+
+      {showRequestModal && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={e => { if (e.target === e.currentTarget) setShowRequestModal(false); }}
+        >
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+              <h2 className="text-white font-semibold text-lg">New MARx Request</h2>
+              <button
+                onClick={() => setShowRequestModal(false)}
+                className="text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg p-1.5 transition duration-150"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={submitRequest} className="px-6 py-5 space-y-5">
+              {/* Client identity */}
+              <div>
+                <p className="text-gray-300 text-sm font-medium mb-2">Client Identity</p>
+                <div className="flex gap-2 mb-3">
+                  {['NAME', 'DOB'].map(type => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => { setIdentifierType(type); setIdentifierValue(''); }}
+                      className={`px-4 py-1.5 rounded-lg text-sm font-medium transition duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        ${identifierType === type
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                    >
+                      {type === 'NAME' ? 'Full Name' : 'Date of Birth'}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type={identifierType === 'DOB' ? 'date' : 'text'}
+                  value={identifierValue}
+                  onChange={e => setIdentifierValue(e.target.value)}
+                  placeholder={identifierType === 'NAME' ? 'Client full name' : ''}
+                  className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500
+                             rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500
+                             focus:border-transparent transition duration-150"
+                  required
+                />
+              </div>
+
+              {/* Client ID */}
+              <div>
+                <p className="text-gray-300 text-sm font-medium mb-2">Client Identifier</p>
+                <div className="flex gap-2 mb-3">
+                  {['SSN', 'MBI'].map(type => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => { setIdType(type); setIdValue(''); }}
+                      className={`px-4 py-1.5 rounded-lg text-sm font-medium transition duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        ${idType === type
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                    >
+                      {type === 'SSN' ? 'Social Security Number' : 'MBI'}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={idValue}
+                  onChange={e => setIdValue(e.target.value)}
+                  placeholder={idType === 'SSN' ? '9 digits, no dashes' : 'Medicare Beneficiary Identifier'}
+                  className="w-full bg-gray-700 border border-gray-600 text-white placeholder-gray-500
+                             rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500
+                             focus:border-transparent transition duration-150"
+                  required
+                />
+                {idType === 'SSN' && (
+                  <p className="text-gray-500 text-xs mt-1">Enter exactly 9 digits (dashes are stripped automatically).</p>
+                )}
+              </div>
+
+              {formError && (
+                <p className="text-red-400 text-sm">{formError}</p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(false)}
+                  className="text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-150"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500
+                             text-white text-sm font-medium px-5 py-2 rounded-lg transition duration-150
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                >
+                  {submitting ? 'Submitting…' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

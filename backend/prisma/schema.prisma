@@ -107,6 +107,7 @@ model Message {
 
 /// Tracks the lifecycle of an agent's MARx lookup request.
 /// One request maps to one Conversation once an admin claims it.
+/// Client PHI fields (identifier + ID) are AES-256-GCM encrypted at rest.
 model MARxRequest {
   id             String            @id @default(cuid())
   agentId        String
@@ -117,6 +118,18 @@ model MARxRequest {
   resolvedAt     DateTime?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+
+  // PHI: client identity — 'NAME' | 'DOB'
+  clientIdentifierType    String?
+  clientIdentifier        String?  // AES-256-GCM encrypted
+  clientIdentifierIv      String?
+  clientIdentifierAuthTag String?
+
+  // PHI: client ID — 'SSN' | 'MBI'
+  clientIdType            String?
+  clientId                String?  // AES-256-GCM encrypted
+  clientIdIv              String?
+  clientIdAuthTag         String?
 
   agent        User          @relation("AgentRequests", fields: [agentId], references: [id])
   claimedBy    User?         @relation("ClaimedRequests", fields: [claimedById], references: [id])

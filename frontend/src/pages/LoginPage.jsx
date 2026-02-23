@@ -70,7 +70,15 @@ export default function LoginPage() {
             <p className="mt-2 text-gray-400 text-sm">Sign in to your account</p>
           </div>
 
-          <div className="bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 p-8">
+          <div className={`bg-gray-800 rounded-2xl shadow-2xl border p-8 transition-all duration-150 ${error ? 'border-red-500/60' : 'border-gray-700'}`}>
+            {error && (
+              <div className="mb-5 flex items-start gap-3 bg-red-500/15 border border-red-500/50 rounded-xl px-4 py-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 text-red-400 shrink-0 mt-0.5">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                </svg>
+                <p className="text-red-300 text-sm font-medium">{error}</p>
+              </div>
+            )}
             <form onSubmit={handleCredentials} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
@@ -106,12 +114,6 @@ export default function LoginPage() {
                   </Link>
                 </div>
               </div>
-
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2.5">
-                  <p className="text-red-400 text-sm">{error}</p>
-                </div>
-              )}
 
               <button
                 type="submit"

@@ -28,9 +28,27 @@ export default function AdminQueue({ requests, onClaim, onResolve }) {
             <div className="text-sm font-medium text-white mb-0.5">
               {agentName(req.agent)}
             </div>
-            <div className="text-xs text-gray-400 mb-2.5">
+            <div className="text-xs text-gray-400 mb-1.5">
               {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
+            {req.clientIdentifierType && req.clientIdentifier && (
+              <div className="text-xs text-gray-300 mb-0.5">
+                <span className="text-gray-500">{req.clientIdentifierType === 'NAME' ? 'Name' : 'DOB'}:</span>{' '}
+                {req.clientIdentifier}
+              </div>
+            )}
+            {req.clientIdType && req.clientId && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-300 mb-2">
+                <span className="text-gray-500">{req.clientIdType}:</span>
+                <span className="font-mono tracking-wide">{req.clientId}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(req.clientId)}
+                  className="text-blue-400 hover:text-blue-300 underline transition duration-150"
+                >
+                  Copy
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
               {req.status === 'PENDING' && (
                 <button

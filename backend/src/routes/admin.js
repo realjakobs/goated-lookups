@@ -6,6 +6,7 @@ const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/requireRole');
 const { getIo } = require('../lib/socketio');
+const { encrypt, decrypt } = require('../lib/crypto');
 
 const INVITE_EXPIRY_HOURS = 48;
 
@@ -154,7 +155,7 @@ router.get('/queue', async (req, res, next) => {
       },
     });
 
-    res.json(requests);
+    res.json(requests.map(r => ({ ...decryptRequestFields(r), agent: r.agent })));
   } catch (err) {
     next(err);
   }
@@ -273,6 +274,34 @@ agentRouter.use(authenticate);
 agentRouter.post('/request', async (req, res, next) => {
   try {
     const { id: agentId } = req.user;
+    const { clientIdentifierType, clientIdentifier, clientIdType, clientId } = req.body;
+
+    // --- Validate PHI inputs ---
+    if (!['NAME', 'DOB'].includes(clientIdentifierType)) {
+      return res.status(400).json({ error: 'clientIdentifierType must be NAME or DOB' });
+    }
+    if (!clientIdentifier || typeof clientIdentifier !== 'string' || !clientIdentifier.trim()) {
+      return res.status(400).json({ error: 'Client name or date of birth is required' });
+    }
+    if (!['SSN', 'MBI'].includes(clientIdType)) {
+      return res.status(400).json({ error: 'clientIdType must be SSN or MBI' });
+    }
+    if (!clientId || typeof clientId !== 'string' || !clientId.trim()) {
+      return res.status(400).json({ error: 'SSN or MBI is required' });
+    }
+
+    // SSN: strip non-digits and enforce exactly 9 digits
+    let normalizedId = clientId.trim();
+    if (clientIdType === 'SSN') {
+      normalizedId = normalizedId.replace(/\D/g, '');
+      if (normalizedId.length !== 9) {
+        return res.status(400).json({ error: 'SSN must be exactly 9 digits' });
+      }
+    }
+
+    // --- Encrypt PHI ---
+    const encIdentifier = encrypt(clientIdentifier.trim());
+    const encId = encrypt(normalizedId);
 
     const [marxRequest, conversation] = await prisma.$transaction(async (tx) => {
       const conv = await tx.conversation.create({ data: {} });
@@ -282,7 +311,18 @@ agentRouter.post('/request', async (req, res, next) => {
       });
 
       const mReq = await tx.mARxRequest.create({
-        data: { agentId, conversationId: conv.id },
+        data: {
+          agentId,
+          conversationId: conv.id,
+          clientIdentifierType,
+          clientIdentifier:        encIdentifier.encryptedContent,
+          clientIdentifierIv:      encIdentifier.iv,
+          clientIdentifierAuthTag: encIdentifier.authTag,
+          clientIdType,
+          clientId:        encId.encryptedContent,
+          clientIdIv:      encId.iv,
+          clientIdAuthTag: encId.authTag,
+        },
       });
 
       return [mReq, conv];
@@ -292,19 +332,25 @@ agentRouter.post('/request', async (req, res, next) => {
       data: {
         userId: agentId,
         action: 'MARX_REQUEST_SUBMITTED',
-        details: { requestId: marxRequest.id, conversationId: conversation.id },
+        details: {
+          requestId: marxRequest.id,
+          conversationId: conversation.id,
+          clientIdType,
+          clientIdentifierType,
+        },
         ipAddress: req.ip,
       },
     });
 
-    // Fetch agent data for the queue notification (id + email only — safe before migration runs)
     const agent = await prisma.user.findUnique({
       where: { id: agentId },
-      select: { id: true, email: true },
+      select: { id: true, email: true, firstName: true, lastName: true },
     });
-    getIo()?.notifyNewRequest({ ...marxRequest, agent });
 
-    res.status(201).json({ ...marxRequest, conversation });
+    const decryptedRequest = decryptRequestFields(marxRequest);
+    getIo()?.notifyNewRequest({ ...decryptedRequest, agent });
+
+    res.status(201).json({ ...decryptedRequest, conversation });
   } catch (err) {
     next(err);
   }
@@ -321,10 +367,37 @@ agentRouter.get('/my-requests', async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json(requests);
+    res.json(requests.map(decryptRequestFields));
   } catch (err) {
     next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Returns a safe object with PHI decrypted and raw encrypted fields stripped. */
+function decryptRequestFields(req) {
+  return {
+    id: req.id,
+    agentId: req.agentId,
+    conversationId: req.conversationId,
+    status: req.status,
+    claimedById: req.claimedById,
+    claimedAt: req.claimedAt,
+    resolvedAt: req.resolvedAt,
+    createdAt: req.createdAt,
+    updatedAt: req.updatedAt,
+    clientIdentifierType: req.clientIdentifierType,
+    clientIdentifier: req.clientIdentifier
+      ? decrypt({ encryptedContent: req.clientIdentifier, iv: req.clientIdentifierIv, authTag: req.clientIdentifierAuthTag })
+      : null,
+    clientIdType: req.clientIdType,
+    clientId: req.clientId
+      ? decrypt({ encryptedContent: req.clientId, iv: req.clientIdIv, authTag: req.clientIdAuthTag })
+      : null,
+  };
+}
 
 module.exports = { adminRouter: router, agentRouter };
