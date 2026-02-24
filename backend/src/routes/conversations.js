@@ -3,6 +3,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
+const { decrypt } = require('../lib/crypto');
 
 const router = express.Router();
 
@@ -26,7 +27,15 @@ router.get('/', async (req, res, next) => {
       where,
       include: {
         participants: { include: { user: { select: { id: true, email: true, role: true, firstName: true, lastName: true } } } },
-        marxRequest: { select: { id: true, status: true } },
+        marxRequest: {
+          select: {
+            id: true, status: true,
+            clientIdentifierType: true,
+            clientIdentifier: true, clientIdentifierIv: true, clientIdentifierAuthTag: true,
+            clientIdType: true,
+            clientId: true, clientIdIv: true, clientIdAuthTag: true,
+          },
+        },
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -36,7 +45,27 @@ router.get('/', async (req, res, next) => {
       orderBy: { updatedAt: 'desc' },
     });
 
-    res.json(conversations);
+    const result = conversations.map(conv => {
+      if (!conv.marxRequest) return conv;
+      const mr = conv.marxRequest;
+      return {
+        ...conv,
+        marxRequest: {
+          id: mr.id,
+          status: mr.status,
+          clientIdentifierType: mr.clientIdentifierType,
+          clientIdentifier: mr.clientIdentifier
+            ? decrypt({ encryptedContent: mr.clientIdentifier, iv: mr.clientIdentifierIv, authTag: mr.clientIdentifierAuthTag })
+            : null,
+          clientIdType: mr.clientIdType,
+          clientId: mr.clientId
+            ? decrypt({ encryptedContent: mr.clientId, iv: mr.clientIdIv, authTag: mr.clientIdAuthTag })
+            : null,
+        },
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

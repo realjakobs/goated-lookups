@@ -6,6 +6,7 @@ import AdminQueue from '../components/AdminQueue.jsx';
 import ConversationList from '../components/ConversationList.jsx';
 import MessageList from '../components/MessageList.jsx';
 import MessageInput from '../components/MessageInput.jsx';
+import MarxRequestCard from '../components/MarxRequestCard.jsx';
 import { useMessageSound } from '../hooks/useMessageSound.js';
 import BellButton from '../components/BellButton.jsx';
 
@@ -26,6 +27,7 @@ export default function AdminPage() {
     setSocket(s);
     s.on('new-marx-request', (req) => { setQueue(prev => [req, ...prev]); });
     s.on('request-claimed', ({ requestId }) => { setQueue(prev => prev.filter(r => r.id !== requestId)); });
+    s.on('queue-item-expired', ({ requestId }) => { setQueue(prev => prev.filter(r => r.id !== requestId)); });
     return () => s.disconnect();
   }, [token]);
 
@@ -58,11 +60,21 @@ export default function AdminPage() {
       }
     };
 
+    const onConvExpired = ({ conversationId }) => {
+      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      if (activeConvId === conversationId) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+    };
+
     socket.on('new-message', onMessage);
     socket.on('messages-expired', onExpired);
+    socket.on('conversation-expired', onConvExpired);
     return () => {
       socket.off('new-message', onMessage);
       socket.off('messages-expired', onExpired);
+      socket.off('conversation-expired', onConvExpired);
     };
   }, [socket, activeConvId, user.id, notify]);
 
@@ -253,19 +265,24 @@ export default function AdminPage() {
             <>
               {(() => {
                 const activeConv = conversations.find(c => c.id === activeConvId);
-                return activeConv?.marxRequest?.status === 'CLAIMED' ? (
-                  <div className="px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0 flex items-center justify-between">
-                    <span className="text-xs text-yellow-400 font-medium">Request claimed — mark resolved when done</span>
-                    <button
-                      onClick={() => resolveRequest(activeConv.marxRequest.id)}
-                      className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium
-                                 px-3 py-1 rounded-lg transition duration-150
-                                 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900"
-                    >
-                      Mark Resolved
-                    </button>
-                  </div>
-                ) : null;
+                return (
+                  <>
+                    {activeConv?.marxRequest?.status === 'CLAIMED' && (
+                      <div className="px-4 py-2 bg-gray-800/80 border-b border-gray-700 shrink-0 flex items-center justify-between">
+                        <span className="text-xs text-yellow-400 font-medium">Request claimed — mark resolved when done</span>
+                        <button
+                          onClick={() => resolveRequest(activeConv.marxRequest.id)}
+                          className="bg-green-600 hover:bg-green-700 text-white text-xs font-medium
+                                     px-3 py-1 rounded-lg transition duration-150
+                                     focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+                        >
+                          Mark Resolved
+                        </button>
+                      </div>
+                    )}
+                    <MarxRequestCard marxRequest={activeConv?.marxRequest} />
+                  </>
+                );
               })()}
               <MessageList messages={messages} currentUserId={user.id} />
               <MessageInput onSend={sendMessage} droppedFile={droppedFile} />

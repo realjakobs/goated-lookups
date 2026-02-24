@@ -156,3 +156,68 @@ async function expireMessages() {
 }
 
 setInterval(expireMessages, 60 * 1000);
+
+// ---------------------------------------------------------------------------
+// Ticket expiry — delete full conversation tree 30 minutes after resolution,
+// or 30 minutes after last status update for PENDING/CLAIMED tickets.
+// ---------------------------------------------------------------------------
+const TICKET_TTL_MS = 30 * 60 * 1000;
+
+async function expireTickets() {
+  try {
+    const cutoff = new Date(Date.now() - TICKET_TTL_MS);
+
+    const expired = await prisma.mARxRequest.findMany({
+      where: {
+        OR: [
+          { status: 'RESOLVED', resolvedAt: { lt: cutoff } },
+          { status: { in: ['PENDING', 'CLAIMED'] }, updatedAt: { lt: cutoff } },
+        ],
+      },
+      select: { id: true, conversationId: true, status: true, agentId: true, claimedById: true },
+    });
+
+    if (expired.length === 0) return;
+
+    for (const req of expired) {
+      const convId = req.conversationId;
+      try {
+        await prisma.$transaction(async (tx) => {
+          if (convId) {
+            await tx.message.deleteMany({ where: { conversationId: convId } });
+            await tx.conversationParticipant.deleteMany({ where: { conversationId: convId } });
+          }
+          await tx.mARxRequest.delete({ where: { id: req.id } });
+          if (convId) {
+            await tx.conversation.delete({ where: { id: convId } });
+          }
+        });
+
+        console.log(`[expiry] deleted ticket ${req.id} (status=${req.status})`);
+
+        // Notify anyone in the conversation room
+        if (convId) {
+          io.to(`conversation:${convId}`).emit('conversation-expired', { conversationId: convId });
+        }
+        // Notify agent directly in case they aren't viewing this conversation
+        if (req.agentId && convId) {
+          io.to(`user:${req.agentId}`).emit('conversation-expired', { conversationId: convId });
+        }
+        // Notify the claiming admin directly for CLAIMED tickets
+        if (req.claimedById && convId) {
+          io.to(`user:${req.claimedById}`).emit('conversation-expired', { conversationId: convId });
+        }
+        // Remove PENDING items from the admin queue display
+        if (req.status === 'PENDING') {
+          io.to('admin-queue').emit('queue-item-expired', { requestId: req.id });
+        }
+      } catch (err) {
+        console.error(`[expiry] failed to delete ticket ${req.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[expiry] ticket expiry error:', err);
+  }
+}
+
+setInterval(expireTickets, 60 * 1000);

@@ -96,6 +96,14 @@ function initSocket(io) {
   io.notifyMessagesExpired = (conversationId, messageIds) => {
     io.to(`conversation:${conversationId}`).emit('messages-expired', { conversationId, messageIds });
   };
+
+  io.notifyConversationExpired = (conversationId) => {
+    io.to(`conversation:${conversationId}`).emit('conversation-expired', { conversationId });
+  };
+
+  io.notifyQueueItemExpired = (requestId) => {
+    io.to('admin-queue').emit('queue-item-expired', { requestId });
+  };
 }
 
 module.exports = initSocket;

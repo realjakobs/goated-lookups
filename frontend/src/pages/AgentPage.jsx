@@ -5,6 +5,7 @@ import api from '../lib/api.js';
 import ConversationList from '../components/ConversationList.jsx';
 import MessageList from '../components/MessageList.jsx';
 import MessageInput from '../components/MessageInput.jsx';
+import MarxRequestCard from '../components/MarxRequestCard.jsx';
 import { useMessageSound } from '../hooks/useMessageSound.js';
 import BellButton from '../components/BellButton.jsx';
 
@@ -58,13 +59,24 @@ export default function AgentPage() {
       api.get('/conversations').then(r => setConversations(r.data));
     };
 
+    // Ticket auto-expired — remove from sidebar and clear active view if needed
+    const onConvExpired = ({ conversationId }) => {
+      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      if (activeConvId === conversationId) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+    };
+
     socket.on('new-message', onMessage);
     socket.on('messages-expired', onExpired);
     socket.on('request-claimed-by-admin', onClaimedByAdmin);
+    socket.on('conversation-expired', onConvExpired);
     return () => {
       socket.off('new-message', onMessage);
       socket.off('messages-expired', onExpired);
       socket.off('request-claimed-by-admin', onClaimedByAdmin);
+      socket.off('conversation-expired', onConvExpired);
     };
   }, [socket, activeConvId, user.id, notify]);
 
@@ -224,16 +236,22 @@ export default function AgentPage() {
 
           {activeConvId ? (
             <>
-              <MessageList messages={messages} currentUserId={user.id} />
               {(() => {
                 const activeConv = conversations.find(c => c.id === activeConvId);
-                return activeConv?.marxRequest?.status === 'PENDING' ? (
-                  <div className="shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-4 text-center">
-                    <p className="text-gray-400 text-sm">Waiting for an admin to claim this request…</p>
-                    <p className="text-gray-500 text-xs mt-1">Messaging will unlock once your request is claimed.</p>
-                  </div>
-                ) : (
-                  <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
+                const isPending = activeConv?.marxRequest?.status === 'PENDING';
+                return (
+                  <>
+                    <MarxRequestCard marxRequest={activeConv?.marxRequest} />
+                    <MessageList messages={messages} currentUserId={user.id} />
+                    {isPending ? (
+                      <div className="shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-4 text-center">
+                        <p className="text-gray-400 text-sm">Waiting for an admin to claim this request…</p>
+                        <p className="text-gray-500 text-xs mt-1">Messaging will unlock once your request is claimed.</p>
+                      </div>
+                    ) : (
+                      <MessageInput onSend={sendMessage} droppedFile={droppedFile} />
+                    )}
+                  </>
                 );
               })()}
             </>
